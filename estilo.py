@@ -43,14 +43,18 @@ CSS = """
 .migas {font-size: .74rem; letter-spacing: .12em; text-transform: uppercase; color: #EA8C2F;
         font-weight: 700; margin: 0 0 .15rem 0;}
 .proposito {font-size: .98rem; color: #333333; margin: -.4rem 0 .6rem 0;}
-.portada {background: #E6F4E9; color: #111111; border: 1px solid #CFE5D4; border-radius: 14px; padding: 1.6rem 2rem;
-          border-bottom: 5px solid #EA8C2F; margin-bottom: 1.2rem;}
-.portada .inst {font-size: .74rem; letter-spacing: .14em; text-transform: uppercase; color: #15803D;
-                font-weight: 600; margin: 0;}
-.portada .fac {font-size: .86rem; color: #333333; margin: .2rem 0 .9rem 0;}
-.portada h1 {font-family: 'Playfair Display', serif; color: #111111; font-size: 1.55rem;
-             line-height: 1.3; margin: 0 0 .9rem 0; padding: 0;}
-.portada .autoras {display: flex; gap: 2.2rem; flex-wrap: wrap; border-top: 1px solid #B7DDBF; padding-top: .8rem;}
+.portada {background: #FFFFFF; color: #111111; border: 1px solid #CFE5D4; border-radius: 14px; padding: 0;
+          border-bottom: 5px solid #EA8C2F; margin-bottom: 1.2rem; overflow: hidden;}
+.portada .cubierta {background: #A7E9B9; padding: 1.4rem 2rem 1.3rem 2rem; border-bottom: 1px solid #86D99C;}
+.portada .etiqueta {display: inline-block; background: #FFFFFF; color: #111111; font-size: .72rem; font-weight: 700;
+                    letter-spacing: .1em; text-transform: uppercase; padding: .28rem .75rem; border-radius: 999px;
+                    border: 1px solid #6CCB86; margin: 0 0 .9rem 0;}
+.portada .inst {font-size: .78rem; letter-spacing: .14em; text-transform: uppercase; color: #111111;
+                font-weight: 700; margin: 0;}
+.portada .fac {font-size: .88rem; color: #1F2937; margin: .2rem 0 .8rem 0;}
+.portada h1 {font-family: 'Playfair Display', serif; color: #111111; font-size: 1.6rem;
+             line-height: 1.3; margin: 0; padding: 0;}
+.portada .autoras {display: flex; gap: 2.2rem; flex-wrap: wrap; padding: .9rem 2rem 1rem 2rem; background: #F3FAF4;}
 .portada .autoras div {font-size: .98rem; color: #111111; font-weight: 600;}
 .portada .autoras span {display: block; font-size: .7rem; color: #4B5563; font-weight: 400;
                         letter-spacing: .08em; text-transform: uppercase;}

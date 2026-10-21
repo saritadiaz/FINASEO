@@ -737,15 +737,11 @@ NO_ESTA = "— No está en el archivo —"
 
 
 def ayuda_plantilla():
-    with st.expander("¿No tiene un archivo con estos datos? Descargue la plantilla de ejemplo"):
-        st.write("La plantilla trae instrucciones, la fuente habitual de cada dato en SAP y 36 meses de ejemplo sintéticos.")
-        st.download_button("Descargar plantilla de Excel", datos.plantilla_excel(), file_name="plantilla_finaseo.xlsx",
+    with st.expander("¿No tiene un archivo? Descargue un ejemplo"):
+        st.write("Un Excel de ejemplo con 36 meses de datos ficticios, para ver cómo debe ser el archivo.")
+        st.download_button("Descargar ejemplo de Excel", datos.plantilla_excel(), file_name="plantilla_finaseo.xlsx",
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                            icon=":material/download:")
-        st.dataframe(pd.DataFrame([[datos.NOMBRES_CAMPOS[c], d, sap or "—"] for c, (d, sap, o) in datos.COLUMNAS.items()],
-                                  columns=["Dato", "Qué debe contener", "Fuente habitual en SAP"]),
-                     hide_index=True, width="stretch")
-        st.caption("Los códigos de SAP pueden variar según la configuración de cada empresa; confírmelos con el área de sistemas.")
 
 
 def revisar_columnas(df, clave, quitar=(), abierto=False):

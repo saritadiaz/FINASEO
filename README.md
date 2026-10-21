@@ -3,7 +3,7 @@
 Prototipo del trabajo escrito *"Desarrollo y evaluación de un aplicativo financiero con inteligencia artificial generativa (Streamlit + Claude) para la integración del presupuesto, el flujo de caja y la analítica en una empresa prestadora del servicio de aseo en Colombia"*.
 
 Maestría en Finanzas, Universidad Libre de Colombia.
-Autoras: Sandra Viviana Nope y Sara Cuta Díaz.
+Autoras: Sandra Nope - Sara Cuta Díaz.
 
 > Todas las cifras son **sintéticas** (inventadas pero realistas). No corresponden a ninguna empresa.
 

@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import datos
-from estilo import GRIS, NARANJA, NEGRO, PETROLEO, ROJO, VERDE, VERDE_CLARO, estilo_grafico, lectura, pct, pesos, tarjeta
+from estilo import GRIS, NARANJA, NEGRO, PETROLEO, ROJO, VERDE, VERDE_CLARO, dona, estilo_grafico, lectura, pct, pesos, tarjeta
 
 NOMBRES_RUBROS = {
     "disposicion_final": "Disposición final", "nomina": "Nómina", "combustible": "Combustible",
@@ -79,10 +79,13 @@ def mostrar_informe(hist: pd.DataFrame, caja_minima: float, origen: str):
                            marker_color=[NARANJA if i == 0 else VERDE for i in range(len(rub))],
                            text=[f"{pesos(v)} · {pct(v / total * 100)}" for v in rub.values],
                            textposition="outside", cliponaxis=False))
-    estilo_grafico(fig, 60 + 38 * len(rub))
+    estilo_grafico(fig, max(320, 60 + 38 * len(rub)))
     fig.update_layout(yaxis=dict(autorange="reversed"), showlegend=False, margin=dict(t=10, b=10, l=10, r=10))
-    fig.update_xaxes(showticklabels=False, range=[0, rub.max() * 1.35])
-    st.plotly_chart(fig, width="stretch")
+    fig.update_xaxes(showticklabels=False, range=[0, rub.max() * 1.45])
+    g1, g2 = st.columns([1.25, 1])
+    g1.plotly_chart(fig, width="stretch")
+    composicion = pd.Series(rub.values, index=nombres)
+    g2.plotly_chart(dona(composicion, alto=max(320, 60 + 38 * len(rub))), width="stretch")
     top3 = rub.head(3)
     lectura(f"Los tres rubros más grandes ({', '.join(NOMBRES_RUBROS[k].lower() for k in top3.index)}) suman el "
             f"{pct(top3.sum() / total * 100)} de los egresos. El primero, {NOMBRES_RUBROS[rub.index[0]].lower()}, "

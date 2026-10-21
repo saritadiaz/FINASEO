@@ -37,9 +37,12 @@ COLUMNAS = {
     "inversion_flota": ("Compra o reposición de vehículos y contenedores", "Activos fijos / FBL3N", False),
     "impuestos": ("Pagos de impuesto de renta", "FBL3N (impuestos por pagar)", False),
     "saldo_caja": ("Saldo de caja y bancos al cierre del mes", "FBL3N de cuentas de bancos / FF7A", True),
+    "proveedores": ("Saldo por pagar a proveedores al cierre del mes (opcional)", "FBL1N (partidas abiertas de proveedores)", False),
+    "saldo_deuda": ("Saldo de la deuda financiera al cierre del mes (opcional)", "FBL3N (obligaciones financieras)", False),
 }
+SALDOS = ["saldo_caja", "proveedores", "saldo_deuda"]
 OBLIGATORIAS = [c for c, v in COLUMNAS.items() if v[2]]
-EGRESOS = [c for c in COLUMNAS if c not in ("mes", "facturado", "recaudo", "saldo_caja")]
+EGRESOS = [c for c in COLUMNAS if c not in ("mes", "facturado", "recaudo", "saldo_caja", "proveedores", "saldo_deuda")]
 COLUMNAS_PRESUPUESTO = ["mes", "facturado", "recaudo"] + EGRESOS
 MIN_MESES = 12
 MESES_BACKTESTING = 24
@@ -51,6 +54,9 @@ MESES_BACKTESTING = 24
 def _ejemplo_historico() -> pd.DataFrame:
     """36 meses de ejemplo (sintéticos) para que la plantilla se pueda probar de inmediato."""
     h = m.historia_sintetica(m.Supuestos()).copy()
+    costos = h[m.COSTOS_OPERATIVOS].sum(axis=1)
+    h["proveedores"] = costos * m.Supuestos().dias_proveedores / 30
+    h["saldo_deuda"] = 22_000 - 120 * np.arange(len(h))
     fechas = pd.date_range("2023-01-01", periods=len(h), freq="MS")
     h["mes"] = fechas.strftime("%Y-%m")
     return h[list(COLUMNAS)].round(1)
@@ -272,6 +278,15 @@ def calibrar(hist: pd.DataFrame, base: m.Supuestos, usuarios: int, toneladas: fl
         impuesto_renta_anual=float(ult["impuestos"].sum()),
         caja_inicial=float(hist["saldo_caja"].iloc[-1]),
     )
+    nota_prov = "Se mantiene el supuesto: el archivo no trae el saldo de proveedores"
+    nota_deuda = "Se mantiene el supuesto: el archivo no trae el saldo de la deuda"
+    costos_mes = float(ult[m.COSTOS_OPERATIVOS].sum(axis=1).mean())
+    if "proveedores" in hist and hist["proveedores"].notna().any() and costos_mes > 0:
+        s = replace(s, dias_proveedores=float(hist["proveedores"].dropna().iloc[-1] / costos_mes * 30))
+        nota_prov = "Saldo de proveedores del último mes ÷ costos operativos mensuales × 30"
+    if "saldo_deuda" in hist and hist["saldo_deuda"].notna().any():
+        s = replace(s, saldo_deuda=float(hist["saldo_deuda"].dropna().iloc[-1]))
+        nota_deuda = f"Saldo de la deuda de {hist['mes'].iloc[-1]}"
     explicacion = pd.DataFrame([
         ["Usuarios facturados", f"{usuarios:,}".replace(",", "."), "Dato ingresado (SUI o área comercial)"],
         ["Tarifa promedio por usuario", f"${s.tarifa_promedio * 1e6:,.0f}".replace(",", "."), "Facturación promedio de los últimos 3 meses ÷ usuarios"],
@@ -284,6 +299,8 @@ def calibrar(hist: pd.DataFrame, base: m.Supuestos, usuarios: int, toneladas: fl
         ["Póliza semestral", f"${s.poliza_semestral:,.0f} M".replace(",", "."), "Pagos de pólizas de 12 meses ÷ 2 (el modelo las ubica en abril y octubre)"],
         ["Impuesto de renta anual", f"${s.impuesto_renta_anual:,.0f} M".replace(",", "."), "Pagos de 12 meses (el modelo los ubica en febrero, abril y junio)"],
         ["Caja inicial de la proyección", f"${s.caja_inicial:,.0f} M".replace(",", "."), f"Saldo de caja de {hist['mes'].iloc[-1]}"],
+        ["Días de pago a proveedores", f"{s.dias_proveedores:.0f} días", nota_prov],
+        ["Saldo de la deuda", f"${s.saldo_deuda:,.0f} M".replace(",", "."), nota_deuda],
     ], columns=["Driver", "Valor calibrado", "Cómo se calculó"])
     return s, explicacion
 
@@ -325,6 +342,9 @@ def backtesting_real(hist: pd.DataFrame, base: m.Supuestos, usuarios: int, tonel
 # Palabras con las que se reconoce cada columna (sin tildes y en minúscula).
 SINONIMOS = {
     "mes": ["mes", "fecha", "periodo", "period", "month", "ano_mes", "mes_ano", "corte"],
+    "saldo_deuda": ["saldo_deuda", "deuda_total", "saldo_de_la_deuda", "saldo_credito", "saldo_creditos",
+                    "obligaciones_financieras", "saldo_obligaciones"],
+    "proveedores": ["proveedores", "cuentas_por_pagar", "cxp", "saldo_proveedores"],
     "facturado": ["facturado", "facturacion", "ventas", "venta", "ingresos_facturados", "ingresos", "facturas"],
     "recaudo": ["recaudo", "recaudado", "recaudos", "cobros", "cobrado", "cartera_recaudada", "ingresos_caja", "entradas"],
     "disposicion_final": ["disposicion", "relleno"],
@@ -344,7 +364,8 @@ NOMBRES_CAMPOS = {
     "nomina": "Nómina", "combustible": "Combustible", "mantenimiento": "Mantenimiento",
     "administrativos": "Gastos administrativos", "otros": "Otros pagos", "poliza": "Pólizas",
     "servicio_deuda": "Servicio de la deuda", "inversion_flota": "Reposición de flota", "impuestos": "Impuestos",
-    "saldo_caja": "Saldo de caja",
+    "saldo_caja": "Saldo de caja", "proveedores": "Saldo de proveedores (opcional)",
+    "saldo_deuda": "Saldo de la deuda (opcional)",
 }
 MESES_TEXTO = {"ene": 1, "feb": 2, "mar": 3, "abr": 4, "may": 5, "jun": 6, "jul": 7, "ago": 8,
                "sep": 9, "set": 9, "oct": 10, "nov": 11, "dic": 12,
@@ -460,7 +481,7 @@ def procesar(df: pd.DataFrame, mapeo: dict, saldo_inicial: float | None = None, 
     if malas.any():
         avisos.append(f"Se ignoraron {int(malas.sum())} filas sin una fecha válida (por ejemplo, totales o títulos).")
 
-    for campo in ["facturado", "recaudo"] + EGRESOS + ["saldo_caja"]:
+    for campo in ["facturado", "recaudo"] + EGRESOS + SALDOS:
         col = mapeo.get(campo)
         base[campo] = _numero(df[col]) if col else float("nan")
     base = base[base["fecha"].notna()]
@@ -469,8 +490,8 @@ def procesar(df: pd.DataFrame, mapeo: dict, saldo_inicial: float | None = None, 
     if base["fecha"].duplicated().any():
         avisos.append("El archivo tiene varios registros por mes; se sumaron por mes (el saldo de caja es el del último registro).")
         flujos = base.groupby("fecha")[["facturado", "recaudo"] + EGRESOS].sum(min_count=1)
-        saldo = base.groupby("fecha")["saldo_caja"].last()
-        base = flujos.join(saldo).reset_index()
+        saldos = base.groupby("fecha")[SALDOS].last()
+        base = flujos.join(saldos).reset_index()
     base = base.sort_values("fecha").reset_index(drop=True)
 
     if len(base) < MIN_MESES_INFORME:
@@ -497,7 +518,9 @@ def procesar(df: pd.DataFrame, mapeo: dict, saldo_inicial: float | None = None, 
         avisos.append(f"Los egresos venían en negativo ({', '.join(negativos)}); se tomaron en valor positivo.")
 
     # Unidades: el modelo trabaja en millones de pesos
-    monetarias = ["facturado", "recaudo"] + EGRESOS + ["saldo_caja"]
+    monetarias = ["facturado", "recaudo"] + EGRESOS + SALDOS
+    for c in ("proveedores", "saldo_deuda"):
+        base[c] = base[c].abs()
     if max(base["facturado"].abs().mean(), base["recaudo"].abs().mean()) > 1_000_000:
         base[monetarias] = base[monetarias] / 1_000_000
         avisos.append("Las cifras estaban en pesos; se convirtieron a millones de pesos.")

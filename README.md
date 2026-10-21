@@ -33,11 +33,12 @@ Autoras: Sandra Nope - Sara Cuta Díaz.
 6. **Asistente IA:** alertas automáticas y preguntas en lenguaje natural a Claude.
 7. **Carga de datos (Excel):** reemplaza los datos sintéticos por datos reales de una empresa, resumidos por mes en una plantilla (por ejemplo, desde reportes de SAP).
 
-## Usar datos reales (módulo 7)
+## Usar datos reales (módulo 7 y módulo 2)
 
-1. En el módulo 7, descarguen la **plantilla de Excel**. Trae instrucciones, la fuente habitual de cada dato en SAP y 36 meses de ejemplo.
-2. Reemplacen los datos de ejemplo por los de la empresa: una fila por mes, cifras en **millones de pesos** y con **criterio de caja** (lo cobrado y pagado, no lo causado). Mínimo 12 meses; con 24 o más se activa el backtesting con datos reales.
-3. Carguen el archivo, ingresen usuarios y toneladas, revisen los supuestos calibrados y hagan clic en **Usar estos datos en el aplicativo**.
+1. En **7. Carga de datos**, carguen el archivo de la empresa en Excel o CSV, con una fila por mes (o por día: el aplicativo suma por mes). No hace falta usar la plantilla: el aplicativo **reconoce las columnas por su nombre** (por ejemplo, "Fecha", "Ventas", "Recaudo", "Nómina", "ACPM", "Saldo bancos") y permite corregir las que no reconozca.
+2. El aplicativo **ajusta solo los formatos comunes**: cifras en pesos (las pasa a millones), signos de pesos y puntos de miles, egresos en negativo y meses escritos como "ene-2025".
+3. Apenas se carga, aparece el **informe con gráficos de barras**. Para usar los datos en todo el aplicativo, ingresen usuarios y toneladas y hagan clic en **Usar estos datos en el aplicativo**.
+4. Para el **presupuesto**, en **2. Presupuesto** abran "Cargar el presupuesto de la empresa" y carguen el archivo del presupuesto mes a mes. Se compara contra lo ejecutado que cargaron en el paso 1. También puede venir como una hoja llamada "Presupuesto" dentro del mismo archivo.
 
 **Confidencialidad:** usen datos reales solo con autorización escrita de la empresa, y ejecuten el aplicativo en un computador de la empresa (opción B), no en la versión publicada. Nunca suban datos reales a GitHub: el repositorio es público. Los datos cargados no se guardan; se borran al recargar la página.
 

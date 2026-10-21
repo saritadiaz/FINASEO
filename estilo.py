@@ -171,3 +171,33 @@ def estilo_grafico(fig, alto=400, titulo=None):
     fig.update_xaxes(showgrid=False, linecolor="#CFE5D4")
     fig.update_yaxes(gridcolor="#EAF5EC", zerolinecolor="#CFE5D4", separatethousands=True, tickformat=",.0f")
     return fig
+
+
+def dona(valores, titulo=None, alto=360, max_partes=5):
+    """Gráfica de dona para la composición de un total (por ejemplo, los egresos).
+    Muestra las partes más grandes y agrupa el resto en 'Otros'."""
+    import plotly.graph_objects as go
+    serie = valores[valores > 0].sort_values(ascending=False)
+    if len(serie) > max_partes + 1:
+        principales = serie.head(max_partes)
+        import pandas as pd
+        serie = pd.concat([principales, pd.Series({"Otros": serie.iloc[max_partes:].sum()})])
+    colores = ["#16A34A", "#EA8C2F", "#0F766E", "#86EFAC", "#4B5563", "#D1D5DB"]
+    total = serie.sum()
+    fig = go.Figure(go.Pie(
+        labels=list(serie.index), values=list(serie.values), hole=0.62, sort=False, direction="clockwise",
+        marker=dict(colors=colores[:len(serie)], line=dict(color="#FFFFFF", width=2)),
+        texttemplate="%{percent:.0%}", textposition="outside", textfont=dict(color=NEGRO, size=13),
+        hovertemplate="%{label}<br>%{value:,.0f} millones<br>%{percent:.1%}<extra></extra>",
+    ))
+    fig.update_layout(
+        height=alto, title=dict(text=titulo, y=0.98, yanchor="top") if titulo else None,
+        font=dict(family=FUENTE, color=NEGRO, size=13),
+        title_font=dict(family="'Playfair Display', serif", size=17, color=NEGRO),
+        paper_bgcolor="rgba(0,0,0,0)", separators=",.",
+        margin=dict(t=70 if titulo else 30, b=30, l=50, r=50),
+        legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.08, yanchor="top", font=dict(size=12)),
+        annotations=[dict(text=f"<b>{pesos(total)}</b><br><span style='font-size:12px'>total egresos</span>",
+                          x=0.5, y=0.5, showarrow=False, font=dict(size=16, color=NEGRO))],
+    )
+    return fig

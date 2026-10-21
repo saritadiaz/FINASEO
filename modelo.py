@@ -43,6 +43,10 @@ class Supuestos:
     inflacion_anual: float = 0.05
     caja_inicial: float = 3_000
     caja_minima: float = 1_000
+    # Capital de trabajo y deuda (para KTNO, palanca de crecimiento y deuda/EBITDA)
+    inventarios: float = 500                # repuestos, llantas e insumos en bodega
+    dias_proveedores: float = 20            # días que la empresa tarda en pagar a sus proveedores
+    saldo_deuda: float = 18_000             # saldo total de los créditos financieros
 
 
 ESCENARIOS = {
@@ -185,20 +189,37 @@ def tabla_desviaciones(presupuesto: pd.DataFrame, ejecutado: pd.DataFrame, mes_i
 # 4. INDICADORES
 # ---------------------------------------------------------------------------
 def indicadores(df: pd.DataFrame, s: Supuestos) -> dict:
+    meses = len(df)
     costos_operativos = df[COSTOS_OPERATIVOS].sum().sum()
     facturado = df["facturado"].sum()
     idx_min = int(df["saldo_caja"].idxmin())
+    # Cartera: lo facturado que al cierre todavía no se ha recaudado
     cartera_final = df["facturado"].iloc[-1] * s.tasa_recaudo + df["facturado"].iloc[-2] * s.tasa_recaudo * (1 - s.porcion_mes_siguiente)
-    dias_cartera = cartera_final / (facturado / 12) * 30
+    dias_cartera = cartera_final / (facturado / meses) * 30
+    # Capital de trabajo neto operativo: cartera + inventarios - proveedores
+    proveedores = costos_operativos / meses * s.dias_proveedores / 30
+    ktno = cartera_final + s.inventarios - proveedores
+    ingresos_anuales = facturado * 12 / meses
+    ebitda_anual = (facturado - costos_operativos) * 12 / meses
+    margen_ebitda = (facturado - costos_operativos) / facturado * 100
+    pkt = ktno / ingresos_anuales * 100
     return {
         "caja_minima_proyectada": float(df["saldo_caja"].min()),
         "mes_critico": df.loc[idx_min, "mes"],
         "meses_bajo_minimo": int((df["saldo_caja"] < s.caja_minima).sum()),
-        "margen_ebitda_pct": float((facturado - costos_operativos) / facturado * 100),
+        "margen_ebitda_pct": float(margen_ebitda),
         "recaudo_sobre_facturado_pct": float(df["recaudo"].sum() / facturado * 100),
         "dias_cartera": float(dias_cartera),
         "cobertura_caja_meses": float(df["saldo_caja"].iloc[-1] / df["egresos"].mean()),
         "saldo_final": float(df["saldo_caja"].iloc[-1]),
+        "cartera": float(cartera_final),
+        "proveedores": float(proveedores),
+        "ktno": float(ktno),
+        "ingresos_anuales": float(ingresos_anuales),
+        "ebitda_anual": float(ebitda_anual),
+        "pkt_pct": float(pkt),
+        "palanca_crecimiento": float(margen_ebitda / pkt) if pkt > 0 else float("inf"),
+        "deuda_ebitda": float(s.saldo_deuda / ebitda_anual) if ebitda_anual > 0 else float("inf"),
     }
 
 

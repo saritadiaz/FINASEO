@@ -277,6 +277,44 @@ def pagina_supuestos():
             "Qué dicen estos supuestos")
 
 
+def cargar_presupuesto(abierto=False):
+    """Permite cargar el presupuesto de la empresa directamente en esta ventana."""
+    with st.expander("Cargar el presupuesto de la empresa (Excel o CSV)", expanded=abierto, icon=":material/upload_file:"):
+        if not REALES:
+            st.info("Para comparar, el aplicativo necesita también lo **ejecutado** (lo que realmente pasó). "
+                    "Cárguelo primero en '7. Carga de datos' y vuelva aquí.", icon=":material/info:")
+            st.page_link(PAG_CARGA, label="Ir a la carga de datos", icon=":material/arrow_forward:")
+            return
+        st.caption("Un archivo con el presupuesto mes a mes: fecha, recaudo o facturación presupuestada y los rubros de "
+                   "egresos. Las columnas se reconocen solas por su nombre.")
+        archivo = st.file_uploader("Archivo del presupuesto", type=["xlsx", "xls", "csv"], key="archivo_presupuesto")
+        if archivo is None:
+            return
+        try:
+            hojas = datos.leer_hojas(archivo)
+        except Exception as e:
+            st.error(f"No se pudo abrir el archivo: {e}", icon=":material/error:")
+            return
+        nombres = list(hojas)
+        sugerida = next((n for n in nombres if "presupuesto" in n.lower()), datos.hoja_sugerida(hojas))
+        hoja = st.selectbox("¿Qué hoja tiene el presupuesto?", nombres, index=nombres.index(sugerida)) if len(nombres) > 1 else sugerida
+        mapeo = revisar_columnas(hojas[hoja], f"pres_{archivo.name}_{hoja}", quitar=("saldo_caja",))
+        pres, errores, avisos = datos.procesar(hojas[hoja], mapeo, 0.0, hoja)
+        for e in errores:
+            st.error(e, icon=":material/error:")
+        if pres is None:
+            return
+        comunes = pres["fecha"].isin(st.session_state.hist_real["fecha"])
+        if not comunes.any():
+            st.error("Los meses del presupuesto no coinciden con los de los datos ejecutados que cargó.", icon=":material/error:")
+            return
+        st.success(f"Presupuesto leído: {len(pres)} meses, {int(comunes.sum())} de ellos con datos ejecutados para comparar.",
+                   icon=":material/check_circle:")
+        if st.button("Usar este presupuesto", type="primary", icon=":material/check:"):
+            st.session_state.pres_real = pres
+            st.rerun()
+
+
 def pagina_presupuesto():
     pres, ejec = presupuesto_y_ejecutado()
     encabezado("Planeación financiera", "2. Presupuesto",
@@ -284,10 +322,9 @@ def pagina_presupuesto():
                ["Elija el mes cerrado que quiere revisar.", "La pestaña 'Resumen del mes' muestra lo esencial.",
                 "En 'Detalle por rubro', las filas en rojo son desviaciones desfavorables.",
                 "'Mes a mes' compara el flujo neto presupuestado y el ejecutado."])
+    cargar_presupuesto(abierto=pres is None)
     if pres is None:
-        st.info("Los datos cargados no incluyen la hoja 'Presupuesto', o sus meses no coinciden con el histórico. "
-                "Agréguela en el Excel y vuelva a cargarlo.", icon=":material/info:")
-        st.page_link(PAG_CARGA, label="Ir a la carga de datos", icon=":material/upload_file:")
+        st.info("Cargue el presupuesto de la empresa arriba para compararlo con lo ejecutado.", icon=":material/info:")
         return
     with st.container(border=True):
         inicial = ejec["mes"].iloc[-1] if REALES else ejec["mes"].iloc[2]
@@ -318,7 +355,7 @@ def pagina_presupuesto():
         fig = go.Figure(go.Bar(x=orden["Desviación %"], y=orden["Rubro"], orientation="h", marker_color=colores,
                                text=[f"{v:+.1f}%".replace(".", ",") for v in orden["Desviación %"]], textposition="outside",
                                cliponaxis=False))
-        estilo_grafico(fig, 60 + 34 * len(orden), f"Desviación frente al presupuesto · {mes}")
+        estilo_grafico(fig, max(300, 110 + 38 * len(orden)), f"Desviación frente al presupuesto · {mes}")
         lim = max(5, orden["Desviación %"].abs().max() * 1.3)
         fig.update_xaxes(range=[-lim, lim], ticksuffix="%")
         fig.add_vline(x=0, line_color=GRIS, line_width=1)
@@ -696,73 +733,118 @@ def pagina_asistente():
         st.code(ia.construir_mensaje(contexto, "(pregunta)"), language="json")
 
 
-def pagina_carga():
-    encabezado("Datos", "7. Carga de datos (Excel)",
-               "Reemplaza los datos sintéticos por datos reales de una empresa, resumidos por mes en una plantilla. "
-               "Al cargar el archivo se genera un informe con gráficos de barras.",
-               ["Descargue la plantilla y lea la hoja 'Instrucciones'.", "Pegue los datos mensuales, en millones de pesos y con criterio de caja.",
-                "Cargue el archivo: el aplicativo lo valida, le dice qué corregir y genera el informe.",
-                "Revise los supuestos calibrados y aplíquelos."])
-    st.error("**Confidencialidad.** Use datos reales solo con autorización escrita de la empresa. Esta versión está publicada "
-             "en internet: con información real, ejecute el aplicativo en un computador de la empresa (vea la guía README). "
-             "Los datos cargados no se guardan en GitHub ni en el aplicativo: se borran al recargar la página.",
-             icon=":material/lock:")
+NO_ESTA = "— No está en el archivo —"
 
-    with st.container(border=True):
-        st.markdown("#### Paso 1 · Descargue la plantilla")
-        st.write("Trae las instrucciones, la fuente habitual de cada dato en SAP y 36 meses de ejemplo sintéticos.")
+
+def ayuda_plantilla():
+    with st.expander("¿No tiene un archivo con estos datos? Descargue la plantilla de ejemplo"):
+        st.write("La plantilla trae instrucciones, la fuente habitual de cada dato en SAP y 36 meses de ejemplo sintéticos.")
         st.download_button("Descargar plantilla de Excel", datos.plantilla_excel(), file_name="plantilla_finaseo.xlsx",
-                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary",
+                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                            icon=":material/download:")
-        with st.expander("¿Qué va en cada columna y de dónde sale en SAP?"):
-            st.dataframe(pd.DataFrame([[c, d, sap or "—", "Sí" if o else "No"] for c, (d, sap, o) in datos.COLUMNAS.items()],
-                                      columns=["Columna", "Contenido", "Fuente habitual en SAP", "Obligatoria"]),
-                         hide_index=True, width="stretch")
-            st.caption("Los códigos de SAP pueden variar según la configuración de cada empresa; confírmelos con el área de sistemas.")
+        st.dataframe(pd.DataFrame([[datos.NOMBRES_CAMPOS[c], d, sap or "—"] for c, (d, sap, o) in datos.COLUMNAS.items()],
+                                  columns=["Dato", "Qué debe contener", "Fuente habitual en SAP"]),
+                     hide_index=True, width="stretch")
+        st.caption("Los códigos de SAP pueden variar según la configuración de cada empresa; confírmelos con el área de sistemas.")
 
-    with st.container(border=True):
-        st.markdown("#### Paso 2 · Cargue el archivo")
-        archivo = st.file_uploader("Archivo de Excel (.xlsx)", type=["xlsx"])
+
+def revisar_columnas(df, clave, quitar=(), abierto=False):
+    """Muestra cómo se reconocieron las columnas y permite corregirlas. Devuelve el mapeo final."""
+    auto = datos.detectar_columnas(df)
+    columnas = {str(c): c for c in df.columns}
+    opciones = [NO_ESTA] + list(columnas)
+    campos = {k: v for k, v in datos.NOMBRES_CAMPOS.items() if k not in quitar}
+    faltan = not auto.get("mes") or not (auto.get("facturado") or auto.get("recaudo"))
+    reconocidas = sum(1 for k in campos if auto.get(k) is not None)
+    with st.expander(f"Revise cómo se leyó su archivo · {reconocidas} de {len(campos)} datos reconocidos",
+                     expanded=abierto or faltan, icon=":material/fact_check:"):
+        st.caption("El aplicativo reconoció las columnas por su nombre. Si alguna no corresponde, elija la correcta. "
+                   "Lo que no esté en su archivo se toma como 0.")
+        cols, mapeo = st.columns(3), {}
+        for i, (campo, nombre) in enumerate(campos.items()):
+            actual = auto.get(campo)
+            idx = opciones.index(str(actual)) if actual is not None else 0
+            sel = cols[i % 3].selectbox(nombre, opciones, index=idx, key=f"map_{clave}_{campo}")
+            mapeo[campo] = None if sel == NO_ESTA else columnas[sel]
+    return mapeo
+
+
+def pagina_carga():
+    encabezado("Datos", "7. Carga de datos",
+               "Cargue el archivo de la empresa, en Excel o CSV, y el aplicativo le muestra de inmediato el informe con "
+               "gráficos. Después puede usar esos datos en todo el aplicativo.",
+               ["Cargue su archivo: el aplicativo reconoce solo las columnas por su nombre.",
+                "Revise que cada dato se haya leído de la columna correcta.",
+                "Lea el informe que aparece abajo.",
+                "Si quiere, use los datos en el presupuesto, el flujo de caja y los indicadores."])
+    st.warning("**Confidencialidad:** use datos reales solo con autorización de la empresa, y preferiblemente en un "
+               "computador de la empresa. Los datos no se guardan: se borran al recargar la página.", icon=":material/lock:")
+
+    archivo = st.file_uploader("Cargue su archivo de Excel o CSV", type=["xlsx", "xls", "csv"],
+                               help="Una fila por mes (o por día: el aplicativo suma por mes). Por ejemplo, columnas como "
+                                    "Fecha, Ventas, Recaudo, Nómina, Combustible y Saldo bancos.")
     if archivo is None:
         if REALES:
             st.success(f"El aplicativo está usando los datos de **{st.session_state.archivo}**. "
-                       "Su informe está en el menú, en 'Informe de los datos'.", icon=":material/check_circle:")
+                       "Su informe está en '8. Informe de los datos'.", icon=":material/check_circle:")
             if st.button("Volver a los datos sintéticos", icon=":material/undo:"):
                 st.session_state.update({"hist_real": None, "pres_real": None, "inicio": (2027, 1), "archivo": None,
                                          "supuestos": m.Supuestos(), "supuestos_base": m.Supuestos(), "historial_ia": []})
                 for f in fields(m.Supuestos):
                     st.session_state.pop(f"in_{f.name}", None)
                 st.rerun()
+        ayuda_plantilla()
         return
 
-    hist, pres, errores, avisos = datos.leer_excel(archivo)
+    try:
+        hojas = datos.leer_hojas(archivo)
+    except Exception as e:
+        st.error(f"No se pudo abrir el archivo: {e}", icon=":material/error:")
+        return
+    hoja = datos.hoja_sugerida(hojas)
+    if len(hojas) > 1:
+        nombres = list(hojas)
+        hoja = st.selectbox("¿Qué hoja tiene los datos mes a mes?", nombres, index=nombres.index(hoja))
+    df = hojas[hoja]
+    mapeo = revisar_columnas(df, f"{archivo.name}_{hoja}")
+    saldo_ini = None
+    if not mapeo.get("saldo_caja"):
+        saldo_ini = st.number_input("Su archivo no trae el saldo de caja. ¿Con cuánto saldo empezó el primer mes? "
+                                    "(millones de pesos)", value=0.0, step=100.0)
+
+    hist, errores, avisos = datos.procesar(df, mapeo, saldo_ini, hoja)
     for e in errores:
         st.error(e, icon=":material/error:")
-    for a in avisos:
-        st.warning(a, icon=":material/warning:")
     if hist is None:
+        ayuda_plantilla()
         return
-    st.success(f"Archivo válido: {len(hist)} meses, de {hist['mes'].iloc[0]} a {hist['mes'].iloc[-1]}"
-               + (f", con presupuesto para {len(pres)} meses." if pres is not None else ", sin presupuesto."),
-               icon=":material/check_circle:")
+    pres, av_p = datos.presupuesto_de(hojas, hist)
+    avisos += av_p
+    st.success(f"Listo: se leyeron **{len(hist)} meses**, de {hist['mes'].iloc[0]} a {hist['mes'].iloc[-1]}"
+               + (f", y un presupuesto de {len(pres)} meses." if pres is not None else "."), icon=":material/check_circle:")
+    if avisos:
+        with st.expander(f"Ajustes que hizo el aplicativo al leer el archivo ({len(avisos)})", icon=":material/info:"):
+            for a in avisos:
+                st.markdown(f"- {a}")
+
+    st.subheader("Informe de su archivo")
+    informe.mostrar_informe(hist, st.session_state.supuestos.caja_minima, f"archivo {archivo.name}")
 
     with st.container(border=True):
-        st.markdown("#### Paso 3 · Informe automático de los datos cargados")
-        informe.mostrar_informe(hist, st.session_state.supuestos.caja_minima, f"archivo {archivo.name}")
-
-    with st.container(border=True):
-        st.markdown("#### Paso 4 · Datos que no salen de SAP")
+        st.markdown("#### Usar estos datos en todo el aplicativo")
+        st.write("Con un clic, el presupuesto, el flujo de caja, los indicadores, el backtesting y el asistente pasan a usar "
+                 "sus datos. La proyección empieza el mes siguiente al último dato.")
         c1, c2 = st.columns(2)
         usuarios = c1.number_input("Usuarios facturados (SUI o área comercial)", min_value=1,
-                                   value=int(st.session_state.usuarios_real), step=1000)
+                                   value=int(st.session_state.usuarios_real), step=1000,
+                                   help="Se usa para calcular la tarifa promedio por usuario.")
         toneladas = c2.number_input("Toneladas recolectadas al mes (informes de operación)", min_value=1.0,
-                                    value=float(st.session_state.toneladas_real), step=500.0)
-    with st.container(border=True):
-        st.markdown("#### Paso 5 · Revise los supuestos calibrados y úselos")
+                                    value=float(st.session_state.toneladas_real), step=500.0,
+                                    help="Se usa para calcular el costo de disposición por tonelada.")
         s_cal, explicacion = datos.calibrar(hist, m.Supuestos(), usuarios, toneladas)
-        st.dataframe(explicacion, hide_index=True, width="stretch")
+        with st.expander("Ver cómo se calcularon los supuestos con sus datos"):
+            st.dataframe(explicacion, hide_index=True, width="stretch")
         anio_i, mes_i = datos.inicio_proyeccion(hist)
-        st.caption(f"La proyección empezará en {m.MESES_ES[mes_i - 1]} {anio_i}, el mes siguiente al último dato.")
         if st.button("Usar estos datos en el aplicativo", type="primary", icon=":material/check:"):
             st.session_state.update({"hist_real": hist, "pres_real": pres, "inicio": (anio_i, mes_i), "archivo": archivo.name,
                                      "supuestos": s_cal, "supuestos_base": s_cal, "usuarios_real": usuarios,
@@ -770,6 +852,7 @@ def pagina_carga():
             for f in fields(m.Supuestos):
                 st.session_state.pop(f"in_{f.name}", None)
             st.rerun()
+    ayuda_plantilla()
 
 
 def pagina_informe():

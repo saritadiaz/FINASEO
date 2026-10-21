@@ -317,3 +317,223 @@ def backtesting_real(hist: pd.DataFrame, base: m.Supuestos, usuarios: int, tonel
         res = {"mape_modelo": m.mape(comp["Real"], comp["Modelo por drivers"]),
                "mape_tradicional": m.mape(comp["Real"], comp["Método tradicional"])}
     return comp, res
+
+
+# ---------------------------------------------------------------------------
+# Lectura flexible: cualquier archivo de Excel o CSV de la empresa
+# ---------------------------------------------------------------------------
+# Palabras con las que se reconoce cada columna (sin tildes y en minúscula).
+SINONIMOS = {
+    "mes": ["mes", "fecha", "periodo", "period", "month", "ano_mes", "mes_ano", "corte"],
+    "facturado": ["facturado", "facturacion", "ventas", "venta", "ingresos_facturados", "ingresos", "facturas"],
+    "recaudo": ["recaudo", "recaudado", "recaudos", "cobros", "cobrado", "cartera_recaudada", "ingresos_caja", "entradas"],
+    "disposicion_final": ["disposicion", "relleno"],
+    "nomina": ["nomina", "salarios", "sueldos", "personal"],
+    "combustible": ["combustible", "acpm", "diesel", "gasolina"],
+    "mantenimiento": ["mantenimiento", "reparaciones", "repuestos"],
+    "administrativos": ["administrativ", "admin"],
+    "otros": ["otros"],
+    "poliza": ["poliza", "polizas", "seguros", "seguro"],
+    "servicio_deuda": ["deuda", "credito", "prestamo", "obligaciones", "intereses"],
+    "inversion_flota": ["flota", "inversion", "vehiculos", "activos"],
+    "impuestos": ["impuesto", "impuestos", "renta", "dian"],
+    "saldo_caja": ["saldo_caja", "saldo", "bancos", "caja", "disponible", "efectivo"],
+}
+NOMBRES_CAMPOS = {
+    "mes": "Mes o fecha", "facturado": "Facturado", "recaudo": "Recaudo", "disposicion_final": "Disposición final",
+    "nomina": "Nómina", "combustible": "Combustible", "mantenimiento": "Mantenimiento",
+    "administrativos": "Gastos administrativos", "otros": "Otros pagos", "poliza": "Pólizas",
+    "servicio_deuda": "Servicio de la deuda", "inversion_flota": "Reposición de flota", "impuestos": "Impuestos",
+    "saldo_caja": "Saldo de caja",
+}
+MESES_TEXTO = {"ene": 1, "feb": 2, "mar": 3, "abr": 4, "may": 5, "jun": 6, "jul": 7, "ago": 8,
+               "sep": 9, "set": 9, "oct": 10, "nov": 11, "dic": 12,
+               "jan": 1, "apr": 4, "aug": 8, "dec": 12}
+MIN_MESES_INFORME = 6
+
+
+def leer_hojas(archivo) -> dict:
+    """Lee todas las hojas de un Excel, o el CSV como una sola hoja."""
+    nombre = getattr(archivo, "name", "").lower()
+    if nombre.endswith(".csv"):
+        archivo.seek(0)
+        return {"CSV": pd.read_csv(archivo, sep=None, engine="python")}
+    return pd.read_excel(archivo, sheet_name=None)
+
+
+def hoja_sugerida(hojas: dict) -> str:
+    """La hoja que probablemente tiene los datos mensuales."""
+    nombres = list(hojas)
+    for preferida in ("historico", "datos", "flujo_de_caja", "flujo"):
+        for n in nombres:
+            if _normalizar(n) == preferida:
+                return n
+    for n in nombres:
+        if _normalizar(n) not in ("instrucciones", "presupuesto") and len(hojas[n].dropna(how="all")):
+            return n
+    return nombres[0]
+
+
+def detectar_columnas(df: pd.DataFrame) -> dict:
+    """Propone qué columna del archivo corresponde a cada dato del modelo."""
+    columnas = [c for c in df.columns if not str(c).startswith("Unnamed")]
+    norm = {c: _normalizar(c) for c in columnas}
+    usadas, mapeo = set(), {}
+    for campo, palabras in SINONIMOS.items():           # 1) coincidencia exacta
+        for c in columnas:
+            if c not in usadas and norm[c] in palabras + [campo]:
+                mapeo[campo] = c
+                usadas.add(c)
+                break
+    for campo, palabras in SINONIMOS.items():           # 2) la palabra aparece dentro del nombre
+        if campo in mapeo:
+            continue
+        for c in columnas:
+            if c not in usadas and any(p in norm[c] for p in palabras):
+                mapeo[campo] = c
+                usadas.add(c)
+                break
+    return mapeo
+
+
+def _numero(serie: pd.Series) -> pd.Series:
+    """Convierte textos como '$ 1.234.567,89' o '(1.200)' en números."""
+    if pd.api.types.is_numeric_dtype(serie):
+        return serie.astype(float)
+    t = serie.astype(str).str.strip().str.replace(r"[$\s]", "", regex=True)
+    negativo = t.str.startswith("(") & t.str.endswith(")")
+    t = t.str.strip("()")
+
+    def limpiar(x):
+        if x in ("", "nan", "None", "-"):
+            return None
+        if "." in x and "," in x:                    # 1.234.567,89 (formato colombiano)
+            return x.replace(".", "").replace(",", ".") if x.rfind(",") > x.rfind(".") else x.replace(",", "")
+        if "," in x:                                 # 1234,5 o 1,234,567
+            partes = x.split(",")
+            return x.replace(",", ".") if len(partes) == 2 and len(partes[1]) <= 2 else x.replace(",", "")
+        if x.count(".") > 1:                         # 1.234.567
+            return x.replace(".", "")
+        return x
+
+    num = pd.to_numeric(t.map(limpiar), errors="coerce")
+    return num.where(~negativo, -num)
+
+
+def _fechas(serie: pd.Series) -> pd.Series:
+    """Convierte fechas o textos como '2025-01', 'ene-2025' o 'enero 2025' en el primer día del mes."""
+    if pd.api.types.is_datetime64_any_dtype(serie):
+        return serie.dt.to_period("M").dt.to_timestamp()
+    texto = serie.astype(str).str.strip().str.lower()
+    f = pd.to_datetime(texto.str[:7], format="%Y-%m", errors="coerce")
+    faltan = f.isna()
+    if faltan.any():
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            f[faltan] = pd.to_datetime(texto[faltan], errors="coerce", dayfirst=True)
+    faltan = f.isna()
+    if faltan.any():
+        def mes_texto(x):
+            x = unicodedata.normalize("NFKD", x).encode("ascii", "ignore").decode()
+            anio = next((int(p) for p in x.replace("-", " ").replace("/", " ").replace(".", " ").split() if p.isdigit() and len(p) == 4), None)
+            mes = next((v for k, v in MESES_TEXTO.items() if k in x), None)
+            return pd.Timestamp(anio, mes, 1) if anio and mes else pd.NaT
+        f[faltan] = texto[faltan].map(mes_texto)
+    return pd.to_datetime(f).dt.to_period("M").dt.to_timestamp()
+
+
+def procesar(df: pd.DataFrame, mapeo: dict, saldo_inicial: float | None = None, hoja: str = "datos"):
+    """Convierte el archivo de la empresa en la tabla mensual que usa el modelo.
+    Devuelve (historico, errores, avisos)."""
+    errores, avisos = [], []
+    if not mapeo.get("mes"):
+        return None, ["Indique qué columna tiene el mes o la fecha."], avisos
+    if not mapeo.get("facturado") and not mapeo.get("recaudo"):
+        return None, ["Indique al menos qué columna tiene la facturación o el recaudo."], avisos
+
+    base = pd.DataFrame({"fecha": _fechas(df[mapeo["mes"]])})
+    malas = base["fecha"].isna() & df[mapeo["mes"]].notna()
+    if malas.mean() > 0.5:
+        return None, [f"No se pudieron leer las fechas de la columna '{mapeo['mes']}'. "
+                      "Use fechas o meses como 2025-01 o ene-2025."], avisos
+    if malas.any():
+        avisos.append(f"Se ignoraron {int(malas.sum())} filas sin una fecha válida (por ejemplo, totales o títulos).")
+
+    for campo in ["facturado", "recaudo"] + EGRESOS + ["saldo_caja"]:
+        col = mapeo.get(campo)
+        base[campo] = _numero(df[col]) if col else float("nan")
+    base = base[base["fecha"].notna()]
+
+    # Si hay varios registros por mes (por ejemplo, movimientos diarios), se agrupan por mes
+    if base["fecha"].duplicated().any():
+        avisos.append("El archivo tiene varios registros por mes; se sumaron por mes (el saldo de caja es el del último registro).")
+        flujos = base.groupby("fecha")[["facturado", "recaudo"] + EGRESOS].sum(min_count=1)
+        saldo = base.groupby("fecha")["saldo_caja"].last()
+        base = flujos.join(saldo).reset_index()
+    base = base.sort_values("fecha").reset_index(drop=True)
+
+    if len(base) < MIN_MESES_INFORME:
+        return None, [f"El archivo tiene {len(base)} meses; se necesitan al menos {MIN_MESES_INFORME}."], avisos
+
+    # Datos faltantes
+    if not mapeo.get("facturado"):
+        base["facturado"] = base["recaudo"]
+        avisos.append("No se indicó la facturación; se usó el recaudo en su lugar.")
+    if not mapeo.get("recaudo"):
+        base["recaudo"] = base["facturado"]
+        avisos.append("No se indicó el recaudo; se usó la facturación en su lugar.")
+    sin_dato = [NOMBRES_CAMPOS[c] for c in EGRESOS if not mapeo.get(c)]
+    if sin_dato:
+        avisos.append(f"Estos rubros no están en el archivo y se tomaron como 0: {', '.join(sin_dato)}.")
+    for c in ["facturado", "recaudo"] + EGRESOS:
+        base[c] = base[c].fillna(0.0)
+
+    # Egresos registrados en negativo, como suelen salir de SAP
+    negativos = [NOMBRES_CAMPOS[c] for c in EGRESOS if (base[c] < 0).sum() > len(base) / 2]
+    if negativos:
+        for c in EGRESOS:
+            base[c] = base[c].abs()
+        avisos.append(f"Los egresos venían en negativo ({', '.join(negativos)}); se tomaron en valor positivo.")
+
+    # Unidades: el modelo trabaja en millones de pesos
+    monetarias = ["facturado", "recaudo"] + EGRESOS + ["saldo_caja"]
+    if max(base["facturado"].abs().mean(), base["recaudo"].abs().mean()) > 1_000_000:
+        base[monetarias] = base[monetarias] / 1_000_000
+        avisos.append("Las cifras estaban en pesos; se convirtieron a millones de pesos.")
+
+    base["egresos"] = base[EGRESOS].sum(axis=1)
+    base["flujo_neto"] = base["recaudo"] - base["egresos"]
+    if not mapeo.get("saldo_caja") or base["saldo_caja"].isna().all():
+        inicial = float(saldo_inicial or 0.0)
+        base["saldo_caja"] = inicial + base["flujo_neto"].cumsum()
+        avisos.append(f"El archivo no trae el saldo de caja; se calculó desde un saldo inicial de ${inicial:,.0f} M "
+                      "más el flujo neto de cada mes.".replace(",", "."))
+    else:
+        base["saldo_caja"] = base["saldo_caja"].ffill().fillna(0.0)
+
+    esperado = pd.date_range(base["fecha"].min(), base["fecha"].max(), freq="MS")
+    if len(esperado) != len(base):
+        avisos.append("Faltan meses intermedios en el archivo; revise que la serie sea continua.")
+    if len(base) < 12:
+        avisos.append("Con menos de 12 meses la proyección es menos confiable.")
+    if len(base) < MESES_BACKTESTING:
+        avisos.append(f"El backtesting con datos reales necesita {MESES_BACKTESTING} meses; se usará el sintético.")
+    base["mes"] = [f"{m.MESES_ES[f.month - 1]} {f.year}" for f in base["fecha"]]
+    return base[list(COLUMNAS) + ["fecha", "egresos", "flujo_neto"]], errores, avisos
+
+
+def presupuesto_de(hojas: dict, hist: pd.DataFrame):
+    """Si el archivo trae una hoja 'Presupuesto', la lee con la misma detección automática."""
+    hoja = next((n for n in hojas if "presupuesto" in _normalizar(n)), None)
+    if hoja is None or not len(hojas[hoja].dropna(how="all")):
+        return None, []
+    df = hojas[hoja]
+    mapeo = detectar_columnas(df)
+    mapeo.pop("saldo_caja", None)
+    pres, err, av = procesar(df, mapeo, 0.0, hoja)
+    if pres is None:
+        return None, [f"La hoja '{hoja}' no se pudo leer como presupuesto: {err[0]}"]
+    if not set(pres["fecha"]) & set(hist["fecha"]):
+        return None, [f"Los meses de la hoja '{hoja}' no coinciden con los datos reales; no se comparará el presupuesto."]
+    return pres, []

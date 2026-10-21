@@ -1,6 +1,6 @@
 # FinAseo: aplicativo financiero con inteligencia artificial
 
-Prototipo del trabajo escrito *"Desarrollo y evaluación de un aplicativo financiero con inteligencia artificial generativa (Streamlit + Claude) para la integración del presupuesto, el flujo de caja y la analítica en una empresa prestadora del servicio de aseo en Colombia"*.
+Prototipo del trabajo escrito *"Modelo financiero con inteligencia artificial para el presupuesto y el flujo de caja de una empresa de aseo en Colombia"*.
 
 Maestría en Finanzas, Universidad Libre de Colombia.
 Autoras: Sandra Nope - Sara Cuta Díaz.

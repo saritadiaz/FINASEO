@@ -113,11 +113,12 @@ def meses_pagos_grandes(proy):
 # ---------------------------------------------------------------------------
 def pagina_inicio():
     st.markdown(
-        '<div class="portada"><p class="inst">Universidad Libre de Colombia</p>'
+        '<div class="portada"><div class="cubierta">'
+        '<p class="inst">Universidad Libre de Colombia</p>'
         '<p class="fac">Facultad de Ciencias Económicas, Administrativas y Contables · Maestría en Finanzas</p>'
         '<h1>Desarrollo y evaluación de un aplicativo financiero con inteligencia artificial generativa '
         'para la integración del presupuesto, el flujo de caja y la analítica en una empresa prestadora '
-        'del servicio de aseo en Colombia</h1>'
+        'del servicio de aseo en Colombia</h1></div>'
         '<div class="autoras"><div><span>Autora</span>Sandra Nope</div><div><span>Autora</span>Sara Cuta Díaz</div>'
         '<div><span>Trabajo escrito</span>Investigación I · 2026</div></div></div>', unsafe_allow_html=True)
 

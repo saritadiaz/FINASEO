@@ -14,6 +14,11 @@ Autoras: Sandra Nope - Sara Cuta Díaz.
 | Archivo | Qué es |
 |---|---|
 | `modelo.py` | **El modelo financiero** (el motor). Aquí se hacen todas las cuentas: proyección de caja, presupuesto, indicadores y backtesting. |
+| `estilo.py` | **El diseño.** Colores, tarjetas con ícono y ayuda, y las cajas de "Lectura del resultado". |
+| `informe.py` | **El informe automático.** Gráficos de barras que explican las cifras mes a mes, con descarga en Excel. |
+| `logo.svg` | Logo del aplicativo. |
+| `.streamlit/config.toml` | Colores generales y tipo de letra. |
+| `datos.py` | **La carga de datos reales.** Lee y valida el Excel, calibra los drivers y hace el backtesting con datos cargados. |
 | `asistente.py` | **El asistente de IA** (el intérprete). Arma el resumen agregado que recibe Claude y las instrucciones que sigue. |
 | `app.py` | **El aplicativo** (el medio). Las pantallas que ve el usuario. |
 | `requirements.txt` | La lista de programas que necesita Python. |
@@ -26,6 +31,15 @@ Autoras: Sandra Nope - Sara Cuta Díaz.
 4. **Indicadores:** caja mínima, mes crítico, margen EBITDA, días de cartera y cobertura de caja.
 5. **Backtesting (H1):** compara el error (MAPE) del modelo contra el método tradicional en hoja de cálculo, con prueba estadística de Wilcoxon.
 6. **Asistente IA:** alertas automáticas y preguntas en lenguaje natural a Claude.
+7. **Carga de datos (Excel):** reemplaza los datos sintéticos por datos reales de una empresa, resumidos por mes en una plantilla (por ejemplo, desde reportes de SAP).
+
+## Usar datos reales (módulo 7)
+
+1. En el módulo 7, descarguen la **plantilla de Excel**. Trae instrucciones, la fuente habitual de cada dato en SAP y 36 meses de ejemplo.
+2. Reemplacen los datos de ejemplo por los de la empresa: una fila por mes, cifras en **millones de pesos** y con **criterio de caja** (lo cobrado y pagado, no lo causado). Mínimo 12 meses; con 24 o más se activa el backtesting con datos reales.
+3. Carguen el archivo, ingresen usuarios y toneladas, revisen los supuestos calibrados y hagan clic en **Usar estos datos en el aplicativo**.
+
+**Confidencialidad:** usen datos reales solo con autorización escrita de la empresa, y ejecuten el aplicativo en un computador de la empresa (opción B), no en la versión publicada. Nunca suban datos reales a GitHub: el repositorio es público. Los datos cargados no se guardan; se borran al recargar la página.
 
 ---
 

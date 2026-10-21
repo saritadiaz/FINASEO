@@ -5,3 +5,4 @@ plotly>=5.20
 matplotlib>=3.8
 scipy>=1.11
 anthropic>=0.40
+openpyxl>=3.1

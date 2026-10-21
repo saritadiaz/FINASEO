@@ -74,8 +74,13 @@ def aplicar_escenario(s: Supuestos, escenario: str) -> Supuestos:
 # 2. PROYECCIÓN DEL FLUJO DE CAJA POR DRIVERS
 # ---------------------------------------------------------------------------
 def proyectar(s: Supuestos, escenario: str = "Base", meses: int = 12,
-              anio_inicio: int = 2027, caja_inicial: float | None = None) -> pd.DataFrame:
-    """Proyecta mes a mes la facturación, el recaudo, los egresos y el saldo de caja."""
+              anio_inicio: int = 2027, caja_inicial: float | None = None,
+              mes_inicio: int = 1, facturado_previo: list | None = None) -> pd.DataFrame:
+    """Proyecta mes a mes la facturación, el recaudo, los egresos y el saldo de caja.
+    mes_inicio (1 = enero) permite empezar la proyección en cualquier mes, por ejemplo
+    el mes siguiente al último dato real cargado desde Excel.
+    facturado_previo: lo realmente facturado en los dos meses anteriores [t-2, t-1];
+    si se conoce, el recaudo de los primeros meses se calcula con esas cifras reales."""
     s = aplicar_escenario(s, escenario)
     inf_m = (1 + s.inflacion_anual) ** (1 / 12) - 1
     crec_m = (1 + s.crecimiento_usuarios_anual) ** (1 / 12) - 1
@@ -83,11 +88,14 @@ def proyectar(s: Supuestos, escenario: str = "Base", meses: int = 12,
     # Facturación de los dos meses previos (necesaria para el recaudo con rezago)
     facturado_base = s.usuarios * s.tarifa_promedio
     hist = [facturado_base / (1 + crec_m + inf_m) ** 2, facturado_base / (1 + crec_m + inf_m)]
+    if facturado_previo is not None:
+        hist = [float(facturado_previo[0]), float(facturado_previo[1])]
 
     saldo = s.caja_inicial if caja_inicial is None else caja_inicial
     filas = []
     for i in range(meses):
-        mes_num = i % 12
+        posicion = mes_inicio - 1 + i
+        mes_num = posicion % 12
         ajuste = (1 + inf_m) ** i
         usuarios = s.usuarios * (1 + crec_m) ** i
         facturado = usuarios * s.tarifa_promedio * ajuste
@@ -112,7 +120,7 @@ def proyectar(s: Supuestos, escenario: str = "Base", meses: int = 12,
         flujo = recaudo - egresos
         saldo += flujo
         filas.append({
-            "mes": f"{MESES_ES[mes_num]} {anio_inicio + i // 12}",
+            "mes": f"{MESES_ES[mes_num]} {anio_inicio + posicion // 12}",
             "facturado": facturado, "recaudo": recaudo,
             "disposicion_final": disposicion, "nomina": nomina, "combustible": combustible,
             "mantenimiento": mantenimiento, "administrativos": administrativos,

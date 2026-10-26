@@ -40,6 +40,10 @@ def icono(nombre, color="#15803D", tam=22):
 CSS = """
 <style>
 .block-container {padding-top: 3.6rem;}
+[data-testid="stSidebar"], [data-testid="stSidebar"] > div {background-color: #FDEBD3 !important;}
+[data-testid="stSidebar"] {border-right: 1px solid #F3CFA0 !important;}
+[data-testid="stSidebar"] * {color: #111111;}
+[data-testid="stMain"] h1 {color: #3F7A55 !important;}
 .migas {font-size: .74rem; letter-spacing: .12em; text-transform: uppercase; color: #EA8C2F;
         font-weight: 700; margin: 0 0 .15rem 0;}
 .proposito {font-size: .98rem; color: #333333; margin: -.4rem 0 .6rem 0;}
@@ -52,7 +56,7 @@ CSS = """
 .portada .inst {font-size: .78rem; letter-spacing: .14em; text-transform: uppercase; color: #111111;
                 font-weight: 700; margin: 0;}
 .portada .fac {font-size: .88rem; color: #1F2937; margin: .2rem 0 .8rem 0;}
-.portada h1 {font-family: 'Playfair Display', serif; color: #111111; font-size: 1.6rem;
+.portada h1 {font-family: 'Playfair Display', serif; color: #111111 !important; font-size: 1.6rem;
              line-height: 1.3; margin: 0; padding: 0;}
 .portada .autoras {display: flex; gap: 2.2rem; flex-wrap: wrap; padding: .9rem 2rem 1rem 2rem; background: #F3FAF4;}
 .portada .autoras div {font-size: .98rem; color: #111111; font-weight: 600;}

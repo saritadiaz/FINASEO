@@ -983,6 +983,8 @@ PAG_INDICADORES = st.Page(pagina_indicadores, title="4. Indicadores", icon=":mat
 PAG_BACKTESTING = st.Page(pagina_backtesting, title="5. Backtesting (H1)", icon=":material/science:", url_path="backtesting")
 PAG_ASISTENTE = st.Page(pagina_asistente, title="6. Asistente IA", icon=":material/smart_toy:", url_path="asistente")
 PAG_CARGA = st.Page(pagina_carga, title="7. Carga de datos (Excel)", icon=":material/upload_file:", url_path="carga-de-datos")
+from pagina_licitacion import pagina_licitacion
+PAG_LICITACION = st.Page(pagina_licitacion, title="9. Licitación (EMIS)", icon=":material/gavel:", url_path="licitacion")
 PAG_INFORME = st.Page(pagina_informe, title="8. Informe de los datos", icon=":material/bar_chart:", url_path="informe")
 
 navegacion = st.navigation({
@@ -991,6 +993,7 @@ navegacion = st.navigation({
     "Análisis": [PAG_INDICADORES, PAG_ASISTENTE],
     "Investigación": [PAG_BACKTESTING],
     "Datos": [PAG_CARGA, PAG_INFORME],
+    "Licitación": [PAG_LICITACION],
 })
 
 st.logo("logo.svg", size="large")

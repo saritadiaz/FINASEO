@@ -114,60 +114,91 @@ def _diagnostico(d):
 
 # ---------------------------------------------------------------------------
 def _validacion(d):
-    st.markdown("#### ¿El modelo pronostica mejor que la hoja de cálculo tradicional?")
-    st.caption("Para cada operador se toman los años anteriores, se pronostica el último año sin mirarlo "
-               "y se compara con lo que realmente reportó a EMIS.")
+    st.markdown("#### ¿El modelo proyecta mejor que la hoja de cálculo tradicional?")
+    st.caption("Validación año por año con datos reales: el modelo solo ve los años anteriores, proyecta el "
+               "siguiente sin mirarlo y se compara con lo que la empresa reportó a EMIS. Se repite para cada "
+               "operador y cada año. Es la prueba de la hipótesis H1.")
     res, r = lic.validar(d)
     if res.empty:
         st.info("Se necesitan al menos 3 años por empresa para validar.")
         return
+    anios = sorted(res["anio"].unique())
+    pasos = " · ".join(f"datos hasta {a - 1} → proyecta {a}" for a in anios)
+    st.markdown(f'<p class="leyenda">{pasos}</p>', unsafe_allow_html=True)
+
     c = st.columns(4)
-    tarjeta(c[0], "Error del modelo (MAPE)", pct(r["mape_modelo"] * 100),
-            "ok" if r["mape_modelo"] <= r["mape_hoja"] else "alerta", "promedio", "objetivo",
-            "Error porcentual promedio del pronóstico del modelo frente al dato real.")
+    gana = r["mape_modelo"] < r["mape_hoja"]
+    tarjeta(c[0], "Error del modelo (MAPE)", pct(r["mape_modelo"] * 100), "ok" if gana else "alerta",
+            f"{r['n']} proyecciones", "objetivo",
+            "Error porcentual promedio de las proyecciones del modelo frente al dato real.")
     tarjeta(c[1], "Error de la hoja (MAPE)", pct(r["mape_hoja"] * 100), "neutro", "año anterior + IPC", "recibo",
             "Error del método tradicional: el año anterior más la inflación.")
     tarjeta(c[2], "Veces que gana el modelo", pct(r["gana_modelo"] * 100, 0),
-            "ok" if r["gana_modelo"] >= 0.5 else "alerta", f"de {r['n']} pronósticos", "escudo")
+            "ok" if r["gana_modelo"] >= 0.5 else "alerta", f"de {r['n']} proyecciones", "escudo")
     p = r["p_valor"]
     tarjeta(c[3], "Prueba de Wilcoxon", "s. d." if np.isnan(p) else f"p = {p:.3f}".replace(".", ","),
             "neutro" if np.isnan(p) else ("ok" if p < 0.05 else "alerta"),
             "significativo si p < 0,05", "porcentaje",
             "Prueba estadística que dice si la diferencia de errores es real o puede ser casualidad.")
 
-    graf = res.copy()
-    graf["etq"] = graf["empresa"] + " · " + graf["variable"]
+    g1, g2 = st.columns(2)
+    pa = r["por_anio"]
     fig = go.Figure()
-    fig.add_bar(y=graf["etq"], x=graf["error_modelo"] * 100, name="Modelo", orientation="h", marker_color=VERDE)
-    fig.add_bar(y=graf["etq"], x=graf["error_hoja"] * 100, name="Hoja tradicional", orientation="h",
-                marker_color=GRIS)
-    fig.update_layout(barmode="group", xaxis_ticksuffix="%", yaxis_autorange="reversed")
-    st.plotly_chart(estilo_grafico(fig, 120 + 45 * len(graf), "Error del pronóstico (más corto es mejor)"),
-                    width="stretch")
+    fig.add_bar(x=[str(a) for a in pa.index], y=pa["error_modelo"] * 100, name="Modelo", marker_color=VERDE,
+                text=[pct(v * 100) for v in pa["error_modelo"]], textposition="outside")
+    fig.add_bar(x=[str(a) for a in pa.index], y=pa["error_hoja"] * 100, name="Hoja tradicional", marker_color=GRIS,
+                text=[pct(v * 100) for v in pa["error_hoja"]], textposition="outside")
+    fig.update_layout(barmode="group", yaxis_ticksuffix="%", xaxis_title="Año proyectado")
+    g1.plotly_chart(estilo_grafico(fig, 380, "Error promedio por año (más bajo es mejor)"), width="stretch")
+    pv = r["por_variable"]
+    fig2 = go.Figure()
+    fig2.add_bar(x=list(pv.index), y=pv["error_modelo"] * 100, name="Modelo", marker_color=VERDE,
+                 text=[pct(v * 100) for v in pv["error_modelo"]], textposition="outside")
+    fig2.add_bar(x=list(pv.index), y=pv["error_hoja"] * 100, name="Hoja tradicional", marker_color=GRIS,
+                 text=[pct(v * 100) for v in pv["error_hoja"]], textposition="outside")
+    fig2.update_layout(barmode="group", yaxis_ticksuffix="%")
+    g2.plotly_chart(estilo_grafico(fig2, 380, "Error promedio por variable"), width="stretch")
 
-    gana = r["mape_modelo"] < r["mape_hoja"]
-    texto = (f"El modelo se equivocó en promedio <b>{pct(r['mape_modelo'] * 100)}</b> y la hoja tradicional "
+    tabla = pd.DataFrame({
+        "Año proyectado": [str(a) for a in pa.index] + ["Total"],
+        "Error del modelo": [pct(v * 100) for v in pa["error_modelo"]] + [pct(r["mape_modelo"] * 100)],
+        "Error de la hoja": [pct(v * 100) for v in pa["error_hoja"]] + [pct(r["mape_hoja"] * 100)],
+        "Gana": ["Modelo" if a < b else "Hoja" for a, b in zip(pa["error_modelo"], pa["error_hoja"])]
+                + ["Modelo" if gana else "Hoja"],
+    }).set_index("Año proyectado")
+    st.table(tabla)
+
+    años_gana = [str(a) for a, (m_, h_) in pa.iterrows() if m_ < h_]
+    mejor_var = [v for v, (m_, h_) in pv.iterrows() if m_ < h_]
+    peor_var = [v for v, (m_, h_) in pv.iterrows() if m_ >= h_]
+    texto = (f"Con {r['empresas']} operadores y {len(anios)} años proyectados ({r['n']} proyecciones), el modelo "
+             f"se equivocó en promedio <b>{pct(r['mape_modelo'] * 100)}</b> y la hoja tradicional "
              f"<b>{pct(r['mape_hoja'] * 100)}</b>. ")
-    texto += ("El modelo pronostica <b>mejor</b> que el método tradicional, " if gana else
-              "En estos datos el modelo <b>no</b> superó al método tradicional, ")
+    texto += ("En promedio, <b>el modelo proyecta mejor</b>" if gana else "En promedio, <b>la hoja tradicional proyecta mejor</b>")
+    if años_gana:
+        lista = años_gana[0] if len(años_gana) == 1 else ", ".join(años_gana[:-1]) + " y " + años_gana[-1]
+        texto += f"; el modelo gana en {lista}"
+    texto += ". "
+    if mejor_var:
+        texto += f"Su ventaja está en <b>{', '.join(v.lower() for v in mejor_var)}</b>"
+        texto += (f", mientras que en {', '.join(v.lower() for v in peor_var)} el método tradicional es más preciso. "
+                  if peor_var else ". ")
     if np.isnan(p):
-        texto += "pero con tan pocos datos la prueba estadística no se puede calcular; el resultado es exploratorio."
+        texto += "Con tan pocos datos la prueba estadística no se puede calcular; el resultado es exploratorio."
     elif p < 0.05:
-        texto += f"y la diferencia es estadísticamente significativa (p = {p:.3f}).".replace(".", ",", 1)
+        texto += f"La diferencia es estadísticamente significativa (p = {p:.3f}), por lo que H1 se acepta.".replace("0.", "0,", 1)
     else:
-        texto += (f"aunque la diferencia todavía no es estadísticamente significativa (p = {p:.3f}); "
-                  "con más empresas o años la prueba gana fuerza.").replace("0.", "0,", 1)
-    if not gana:
-        texto += (" Con datos anuales, el año anterior es un punto de comparación difícil de superar: la ventaja "
-                  "del modelo está en el detalle mensual del flujo de caja (rezago del recaudo y pagos "
-                  "concentrados), que los datos anuales de EMIS no permiten probar.")
+        texto += (f"Sin embargo, la diferencia no es estadísticamente significativa (p = {p:.3f}): con cinco operadores "
+                  "el resultado es exploratorio y H1 no se puede confirmar con este nivel de evidencia.").replace("0.", "0,", 1)
     lectura(texto, "Lectura para la hipótesis H1")
-    with st.expander("Ver el detalle de cada pronóstico (millones de pesos)"):
-        det = res.rename(columns={"empresa": "Empresa", "anio": "Año pronosticado", "variable": "Variable",
-                                  "real": "Real", "modelo": "Modelo", "hoja": "Hoja tradicional",
-                                  "error_modelo": "Error modelo", "error_hoja": "Error hoja"})
+
+    with st.expander("Ver cada proyección (millones de pesos)"):
+        det = res.rename(columns={"empresa": "Empresa", "anio": "Año proyectado", "con_datos_hasta": "Con datos hasta",
+                                  "variable": "Variable", "real": "Real", "modelo": "Modelo",
+                                  "hoja": "Hoja tradicional", "error_modelo": "Error modelo", "error_hoja": "Error hoja"})
         st.dataframe(det, hide_index=True, width="stretch", column_config={
-            "Año pronosticado": st.column_config.NumberColumn(format="%d"),
+            "Año proyectado": st.column_config.NumberColumn(format="%d"),
+            "Con datos hasta": st.column_config.NumberColumn(format="%d"),
             **{k: st.column_config.NumberColumn(format="%,.0f") for k in ("Real", "Modelo", "Hoja tradicional")},
             **{k: st.column_config.NumberColumn(format="percent") for k in ("Error modelo", "Error hoja")}})
 
@@ -221,10 +252,10 @@ def pagina_sector():
                "Compare el modelo con los estados financieros reales de los operadores de aseo de Bogotá: "
                "diagnóstico, validación y calibración de los supuestos.",
                "1) Suba los estados financieros de EMIS. 2) Vea cómo está cada operador frente a la mediana. "
-               "3) Revise si el modelo pronosticó el último año mejor que la hoja tradicional. "
+               "3) Revise, año por año, si el modelo proyectó mejor que la hoja tradicional. "
                "4) Calibre el modelo para que la empresa tipo se parezca a un operador real.")
     t1, t2, t3, t4 = st.tabs(["1. Cargar datos", "2. Diagnóstico de los operadores",
-                              "3. Validación del modelo", "4. Calibrar el modelo"])
+                              "3. Validación año por año", "4. Calibrar el modelo"])
     with t1:
         _cargar()
     d = st.session_state.get("emis")

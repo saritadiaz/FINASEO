@@ -203,7 +203,7 @@ def leer_archivo(nombre, contenido):
     return datos, mensajes
 
 
-def consolidar(datos, anios=4):
+def consolidar(datos, anios=5):
     """Une archivos, se queda con los últimos `anios` años de cada empresa y calcula indicadores."""
     datos = datos.groupby(["empresa", "anio"], as_index=False).first()
     datos = datos.sort_values(["empresa", "anio"])
@@ -295,39 +295,40 @@ def semaforo(indicador, v):
 # ---------------------------------------------------------------------------
 # 4. VALIDACIÓN: ¿EL MODELO PRONOSTICA MEJOR QUE LA HOJA DE CÁLCULO?
 # ---------------------------------------------------------------------------
-def validar(d, ipc=IPC):
-    """Con los años anteriores se pronostica el último año de cada empresa, sin mirarlo,
-    y se compara con lo que realmente reportó.
-    - Modelo (por drivers): ingresos con el crecimiento promedio de la empresa y
-      EBITDA con su margen promedio.
-    - Hoja tradicional: el año anterior más la inflación (IPC)."""
+def validar(d, ipc=IPC, minimo_previos=2):
+    """Validación año por año (origen móvil): para cada operador y cada año t, el modelo solo ve
+    los años anteriores a t, pronostica t sin mirarlo y se compara con lo que la empresa reportó.
+    Ejemplo con 2021-2025: 2021-2022 -> pronostica 2023; 2021-2023 -> 2024; 2021-2024 -> 2025.
+    - Modelo (por drivers): ingresos con el crecimiento promedio observado y utilidad con el margen
+      promedio observado.
+    - Método tradicional (hoja de cálculo): el año anterior más la inflación (IPC)."""
     filas = []
     for emp, g in d.groupby("empresa"):
-        g = g.sort_values("anio")
-        if len(g) < 3:
-            continue
-        previos, real = g.iloc[:-1], g.iloc[-1]
-        ultimo = previos.iloc[-1]
-        crec = previos["crecimiento"].dropna().mean()
+        g = g.sort_values("anio").reset_index(drop=True)
         con_ebitda = g["ebitda"].notna().all()
         col, nom = ("ebitda", "EBITDA") if con_ebitda else ("utilidad_operacional", "Utilidad operacional")
-        margen = (previos[col] / previos["ingresos"]).mean()
-        inf = ipc.get(int(ultimo["anio"]), 0.05)
-        ing_mod = ultimo["ingresos"] * (1 + crec)
-        ing_hoja = ultimo["ingresos"] * (1 + inf)
-        ebitda_mod = ing_mod * margen
-        ebitda_hoja = ultimo[col] * (1 + inf)
-        for var, mod, hoja, r in [("Ingresos", ing_mod, ing_hoja, real["ingresos"]),
-                                   (nom, ebitda_mod, ebitda_hoja, real[col])]:
-            if pd.isna(r) or r == 0:
-                continue
-            filas.append({"empresa": emp, "anio": int(real["anio"]), "variable": var, "real": r,
-                          "modelo": mod, "hoja": hoja,
-                          "error_modelo": abs(mod - r) / abs(r), "error_hoja": abs(hoja - r) / abs(r)})
+        for t in range(minimo_previos, len(g)):
+            previos, real = g.iloc[:t], g.iloc[t]
+            ultimo = previos.iloc[-1]
+            crec = previos["ingresos"].pct_change().dropna().mean()
+            margen = (previos[col] / previos["ingresos"]).mean()
+            inf = ipc.get(int(ultimo["anio"]), 0.05)
+            ing_mod = ultimo["ingresos"] * (1 + crec)
+            ing_hoja = ultimo["ingresos"] * (1 + inf)
+            for var, mod, hoja, r in [("Ingresos", ing_mod, ing_hoja, real["ingresos"]),
+                                       (nom, ing_mod * margen, ultimo[col] * (1 + inf), real[col])]:
+                if pd.isna(r) or r == 0 or pd.isna(mod):
+                    continue
+                filas.append({"empresa": emp, "anio": int(real["anio"]), "con_datos_hasta": int(ultimo["anio"]),
+                              "variable": var, "real": r, "modelo": mod, "hoja": hoja,
+                              "error_modelo": abs(mod - r) / abs(r), "error_hoja": abs(hoja - r) / abs(r)})
     res = pd.DataFrame(filas)
     if res.empty:
         return res, {}
     resumen = {
+        "por_anio": res.groupby("anio")[["error_modelo", "error_hoja"]].mean(),
+        "por_variable": res.groupby("variable")[["error_modelo", "error_hoja"]].mean(),
+        "empresas": int(res["empresa"].nunique()),
         "mape_modelo": res["error_modelo"].mean(),
         "mape_hoja": res["error_hoja"].mean(),
         "gana_modelo": (res["error_modelo"] < res["error_hoja"]).mean(),

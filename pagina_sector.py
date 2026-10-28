@@ -231,6 +231,38 @@ def _validacion(d):
                   "el resultado es exploratorio y H1 no se puede confirmar con este nivel de evidencia.").replace("0.", "0,", 1)
     lectura(texto, "Lectura para la hipótesis H1")
 
+    st.markdown("#### Empresa por empresa y año por año")
+    var = st.segmented_control("Variable", sorted(res["variable"].unique()), default="Ingresos", key="val_var")
+    var = var or "Ingresos"
+    sub = res[res["variable"] == var]
+    emps = sorted(sub["empresa"].unique())
+    anios_v = sorted(sub["anio"].unique())
+
+    def celda(e, a, tipo):
+        f = sub[(sub["empresa"] == e) & (sub["anio"] == a)]
+        if f.empty:
+            return "—"
+        f = f.iloc[0]
+        if tipo == "valores":
+            return f"Real {pesos(f['real'])} · Modelo {pesos(f['modelo'])} · Hoja {pesos(f['hoja'])}"
+        gana_m = f["error_modelo"] < f["error_hoja"]
+        return (f"{'✅' if gana_m else '❌'} Modelo {pct(f['error_modelo'] * 100)} · "
+                f"Hoja {pct(f['error_hoja'] * 100)}")
+
+    tabla_err = pd.DataFrame({e: [celda(e, a, "error") for a in anios_v] for e in emps},
+                             index=[f"Proyección {a}" for a in anios_v])
+    st.table(tabla_err)
+    ganadas = sub.groupby("empresa").apply(lambda g: int((g["error_modelo"] < g["error_hoja"]).sum()),
+                                           include_groups=False)
+    st.caption(f"Cada celda dice qué tan lejos quedó cada método de lo real ({var.lower()}). ✅ = el modelo estuvo "
+               "más cerca; ❌ = la hoja tradicional estuvo más cerca. Proyección 2023 = hecha con datos hasta 2022, "
+               "y así sucesivamente.")
+    lectura(" · ".join(f"<b>{e}</b>: el modelo gana {n} de {len(anios_v)} años" for e, n in ganadas.items()) + ".",
+            f"Resumen por empresa ({var.lower()})")
+    with st.expander("Ver los valores proyectados frente a los reales (millones de pesos)"):
+        st.table(pd.DataFrame({e: [celda(e, a, "valores") for a in anios_v] for e in emps},
+                              index=[str(a) for a in anios_v]))
+
     with st.expander("Ver cada proyección (millones de pesos)"):
         det = res.rename(columns={"empresa": "Empresa", "anio": "Año proyectado", "con_datos_hasta": "Con datos hasta",
                                   "variable": "Variable", "real": "Real", "modelo": "Modelo",

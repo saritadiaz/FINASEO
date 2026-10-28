@@ -759,8 +759,9 @@ def pagina_indicadores():
                 "Recaudo del periodo ÷ facturación del periodo.")
         tarjeta(c3, "Días de cartera", f"{ind['dias_cartera']:.0f} días", est["cartera"], "meta ≤ 45 días", "reloj",
                 "Cartera pendiente ÷ facturación mensual promedio × 30.")
-        tarjeta(c4, "Saldo final del periodo", pesos(ind["saldo_final"]), est["final"], proy["mes"].iloc[-1], "tendencia",
-                "Saldo de caja al cierre del periodo proyectado.")
+        tarjeta(c4, "EBITDA 2027", pesos(ind["ebitda_anual"]), est["ebitda"], "facturado − costos operativos", "tendencia",
+                "Lo que deja la operación en el año antes de intereses, impuestos, depreciación y amortización. "
+                "Como EMIS no separa la depreciación, se calcula con los costos totales: es una cifra conservadora.")
         leyenda_estados()
         fig = go.Figure()
         fig.add_bar(x=proy["mes"], y=proy["facturado"], name="Facturado", marker_color="#86EFAC")

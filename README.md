@@ -1,6 +1,6 @@
 # FinAseo: aplicativo financiero con inteligencia artificial
 
-Prototipo del trabajo escrito *"Modelo financiero con inteligencia artificial para el presupuesto y el flujo de caja de una empresa de aseo en Bogotá"*.
+Prototipo del trabajo escrito *"Modelo financiero con inteligencia artificial para el presupuesto y el flujo de caja de las empresas de aseo de Bogotá"*.
 
 Maestría en Finanzas, Universidad Libre de Colombia.
 Autoras: Sandra Nope - Sara Cuta Díaz.

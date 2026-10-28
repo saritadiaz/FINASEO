@@ -40,16 +40,18 @@ def icono(nombre, color="#15803D", tam=22):
 CSS = """
 <style>
 .block-container {padding-top: 3.6rem;}
-[data-testid="stSidebar"], [data-testid="stSidebar"] > div {background-color: #FDEBD3 !important;}
-[data-testid="stSidebar"] {border-right: 1px solid #F3CFA0 !important;}
+[data-testid="stSidebar"], [data-testid="stSidebar"] > div {background-color: #DDF0E0 !important;}
+[data-testid="stSidebar"] {border-right: 1px solid #B9DDBF !important;}
 [data-testid="stSidebar"] * {color: #111111;}
-[data-testid="stMain"] h1 {color: #3F7A55 !important;}
-.migas {font-size: .74rem; letter-spacing: .12em; text-transform: uppercase; color: #EA8C2F;
+[data-testid="stSidebarNav"] a[aria-current="page"] {background-color: #B9E0C1 !important;}
+[data-testid="stSidebarNav"] a:hover {background-color: #C9E8CF !important;}
+[data-testid="stMain"] h1 {color: #1F6B3E !important;}
+.migas {font-size: .74rem; letter-spacing: .12em; text-transform: uppercase; color: #3A9D5D;
         font-weight: 700; margin: 0 0 .15rem 0;}
 .proposito {font-size: .98rem; color: #333333; margin: -.4rem 0 .6rem 0;}
 .portada {background: #FFFFFF; color: #111111; border: 1px solid #CFE5D4; border-radius: 14px; padding: 0;
-          border-bottom: 5px solid #EA8C2F; margin-bottom: 1.2rem; overflow: hidden;}
-.portada .cubierta {background: #A7E9B9; padding: 1.4rem 2rem 1.3rem 2rem; border-bottom: 1px solid #86D99C;}
+          border-bottom: 5px solid #3A9D5D; margin-bottom: 1.2rem; overflow: hidden;}
+.portada .cubierta {background: #CFEBD4; padding: 1.4rem 2rem 1.3rem 2rem; border-bottom: 1px solid #A9D8B2;}
 .portada .etiqueta {display: inline-block; background: #FFFFFF; color: #111111; font-size: .72rem; font-weight: 700;
                     letter-spacing: .1em; text-transform: uppercase; padding: .28rem .75rem; border-radius: 999px;
                     border: 1px solid #6CCB86; margin: 0 0 .9rem 0;}
@@ -84,20 +86,20 @@ CSS = """
 .kpi .nota {font-size: .76rem; color: #4B5563;}
 .kpi.ok {border-bottom: 4px solid #16A34A;} .kpi.alerta {border-bottom: 4px solid #EA8C2F;}
 .kpi.riesgo {border-bottom: 4px solid #B42318;} .kpi.neutro {border-bottom: 4px solid #8A9A8F;}
-.lectura {background: #FFFFFF; border: 1px solid #CFE5D4; border-left: 5px solid #EA8C2F; border-radius: 0;
+.lectura {background: #FFFFFF; border: 1px solid #CFE5D4; border-left: 5px solid #3A9D5D; border-radius: 0;
           padding: .85rem 1.1rem; margin: .6rem 0 1rem 0; display: flex; gap: .8rem; align-items: flex-start;}
 .lectura .tit {font-weight: 700; color: #111111; font-size: .85rem; text-transform: uppercase;
                letter-spacing: .05em; margin: 0 0 .25rem 0;}
 .lectura p {margin: 0; color: #222222; font-size: .94rem; line-height: 1.55;}
 .paso {background: #FFFFFF; border: 1px solid #CFE5D4; border-radius: 12px; padding: 1rem 1.1rem; min-height: 150px;}
-.paso .num {width: 30px; height: 30px; border-radius: 50%; background: #16A34A; color: #FFFFFF; font-weight: 700;
+.paso .num {width: 30px; height: 30px; border-radius: 50%; background: #3A9D5D; color: #FFFFFF; font-weight: 700;
             display: flex; align-items: center; justify-content: center; margin-bottom: .5rem;}
 .paso h4 {margin: 0 0 .3rem 0; color: #111111; font-size: 1.02rem;}
 .paso p {margin: 0; color: #333333; font-size: .88rem;}
-.capa {background: #FFFFFF; border: 1px solid #CFE5D4; border-top: 4px solid #EA8C2F; border-radius: 10px;
+.capa {background: #FFFFFF; border: 1px solid #CFE5D4; border-top: 4px solid #3A9D5D; border-radius: 10px;
        padding: .95rem 1.05rem; min-height: 150px;}
 .capa h4 {font-family: 'Playfair Display', serif; color: #111111; margin: 0 0 .3rem 0; font-size: 1.08rem;}
-.capa .rol {font-size: .7rem; text-transform: uppercase; letter-spacing: .1em; color: #EA8C2F; font-weight: 700; margin: 0;}
+.capa .rol {font-size: .7rem; text-transform: uppercase; letter-spacing: .1em; color: #2F8A50; font-weight: 700; margin: 0;}
 .capa p {font-size: .87rem; color: #222222; margin: .3rem 0 0 0;}
 .chip {display: inline-block; font-size: .78rem; font-weight: 600; padding: .25rem .7rem; border-radius: 999px;
        background: #EAF5EC; color: #111111; margin: .15rem .3rem .15rem 0;}
@@ -149,7 +151,7 @@ def tarjeta(columna, etiqueta, valor, estado="neutro", nota="", icono_nombre="ca
 
 def lectura(texto, titulo="Lectura del resultado"):
     """Caja que explica en palabras lo que muestran las cifras (calculada con reglas, sin IA)."""
-    st.markdown(f'<div class="lectura">{icono("bombilla", "#EA8C2F", 26)}<div><p class="tit">{titulo}</p>'
+    st.markdown(f'<div class="lectura">{icono("bombilla", "#3A9D5D", 26)}<div><p class="tit">{titulo}</p>'
                 f'<p>{texto}</p></div></div>', unsafe_allow_html=True)
 
 

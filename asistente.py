@@ -33,7 +33,7 @@ def construir_contexto(escenario, supuestos, proyeccion, indicadores, desviacion
         "escenario": escenario,
         "caja_minima_operativa": supuestos.caja_minima,
         "indicadores_proyeccion_12_meses": {k: (round(v, 1) if isinstance(v, float) else v)
-                                            for k, v in indicadores.items()},
+                                            for k, v in indicadores.items() if k != "palanca_crecimiento"},
         "saldo_caja_por_mes": {r["mes"]: round(r["saldo_caja"]) for _, r in proyeccion.iterrows()},
         "flujo_neto_por_mes": {r["mes"]: round(r["flujo_neto"]) for _, r in proyeccion.iterrows()},
         "pagos_grandes": {r["mes"]: round(r["poliza"] + r["impuestos"]) for _, r in proyeccion.iterrows()

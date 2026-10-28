@@ -22,52 +22,87 @@ def _fmt(v, tipo):
 
 
 # ---------------------------------------------------------------------------
-def _cargar():
-    st.markdown("#### Suba los estados financieros de los operadores")
-    st.caption("Puede subir varios archivos a la vez: el Excel que descarga EMIS de cada empresa "
-               "(cuentas en filas y años en columnas) o la plantilla con todas las empresas.")
-    archivos = st.file_uploader("Archivos de EMIS (Excel o CSV)", type=["xlsx", "xls", "csv"],
-                                accept_multiple_files=True, key="emis_archivos")
-    c1, c2 = st.columns([1, 1])
-    c1.download_button("Descargar plantilla", lic.plantilla_excel(), "plantilla_emis.xlsx",
-                       icon=":material/download:", width="stretch")
-    if c2.button("Probar con operadores ficticios", icon=":material/science:", width="stretch"):
-        st.session_state.emis = lic.consolidar(
-            lic.leer_formato_plantilla(lic.ejemplo().rename(columns=str)))
-        st.session_state.emis_origen = "ejemplo"
-        st.rerun()
+def _leer_emis(archivos):
+    partes, avisos = [], []
+    for a in archivos:
+        datos, msj = lic.leer_archivo(a.name, a.getvalue())
+        avisos += [f"{a.name}: {x}" for x in msj]
+        if datos is not None:
+            partes.append(datos)
+    for x in avisos:
+        st.warning(x)
+    if not partes:
+        return None
+    d = lic.consolidar(pd.concat(partes, ignore_index=True))
+    falta = [lic.CAMPOS[c] for c in lic.OBLIGATORIOS if d[c].isna().all()]
+    if falta:
+        st.error("No se encontró: " + ", ".join(falta) + ". Revise el archivo o use la plantilla.")
+        return None
+    return d
 
-    if archivos:
-        partes, avisos = [], []
-        for a in archivos:
-            datos, msj = lic.leer_archivo(a.name, a.getvalue())
-            avisos += [f"{a.name}: {m}" for m in msj]
-            if datos is not None:
-                partes.append(datos)
-        for m in avisos:
-            st.warning(m)
-        if partes:
-            d = lic.consolidar(pd.concat(partes, ignore_index=True))
-            falta = [lic.CAMPOS[c] for c in lic.OBLIGATORIOS if d[c].isna().all()]
-            if falta:
-                st.error("No se encontró: " + ", ".join(falta) + ". Revise el archivo o use la plantilla.")
-            else:
-                st.session_state.emis = d
-                st.session_state.emis_origen = "real"
 
+def _aplicar(d, origen):
+    """Guarda los datos y calibra el modelo con ellos (una sola vez por carga)."""
+    s_nuevo, _, r = lic.calibrar_modelo(m.Supuestos(), d, m)
+    st.session_state.update({"emis": d, "emis_origen": origen, "supuestos": s_nuevo, "supuestos_base": s_nuevo,
+                             "calibrado_emis": True, "emis_resumen": r})
+
+
+def _tabla_datos(d):
+    cuentas = [c for c in lic.CAMPOS if d[c].notna().any()]
+    cuenta = st.selectbox("Cuenta", cuentas, format_func=lambda c: lic.CAMPOS[c], key="emis_cuenta")
+    tabla = d.pivot_table(index="anio", columns="empresa", values=cuenta, aggfunc="first").sort_index()
+    tabla.index = tabla.index.astype(int).astype(str)
+    tabla.index.name = "Año"
+    tabla.columns.name = None
+    st.table(tabla.map(lambda v: "—" if pd.isna(v) else f"{v:,.0f}".replace(",", ".")))
+    st.caption("Millones de pesos. Cada columna es un operador y cada fila un año. "
+               "Fuente: EMIS, con datos de la Cámara de Comercio de Bogotá.")
+
+
+def fuente_de_supuestos(modelo_mod, sup_bogota, cargar_empresa):
+    """Parte superior de '1. Supuestos': de dónde sale la información que alimenta el modelo."""
+    st.subheader("¿De dónde sale la información?")
     d = st.session_state.get("emis")
-    if d is None:
-        lectura("Aún no hay datos. Suba los archivos de EMIS o pruebe con los operadores ficticios "
-                "para ver cómo funciona.", "Qué hacer")
-        return
-    origen = st.session_state.get("emis_origen")
-    st.success(f"{d['empresa'].nunique()} empresas · años {int(d['anio'].min())} a {int(d['anio'].max())}"
-               + (" · DATOS FICTICIOS de prueba" if origen == "ejemplo" else " · datos de EMIS"))
-    tabla = d[["empresa", "anio"] + list(lic.CAMPOS)].rename(
-        columns={"empresa": "Empresa", "anio": "Año", **lic.CAMPOS})
-    with st.expander("Ver los datos leídos (millones de pesos)"):
-        st.dataframe(tabla, hide_index=True, width="stretch",
-                     column_config={"Año": st.column_config.NumberColumn(format="%d")})
+    r = st.session_state.get("emis_resumen") or lic.OBJETIVO_BOGOTA
+    if st.session_state.get("hist_real") is not None:
+        st.info(f"El modelo está usando los datos mensuales de **{st.session_state.archivo}**.", icon=":material/info:")
+    elif st.session_state.get("calibrado_emis"):
+        st.success(f"Los supuestos están calibrados con los **{r['empresas']} operadores de aseo de Bogotá** (EMIS): "
+                   f"ingresos de {pesos(r['ingreso_anual'])} al año (mediana {r['anio']}) y margen operacional de "
+                   f"{pct(r['margen'] * 100)}. A partir de ellos se generan el presupuesto, el flujo de caja y los "
+                   "indicadores.", icon=":material/check_circle:")
+    t1, t2 = st.tabs(["Estados financieros de los operadores (EMIS)", "Datos mensuales de una empresa (opcional)"])
+    with t1:
+        st.caption("Suba el Excel con los estados financieros de los operadores. Los supuestos se recalculan solos "
+                   "con la mediana del sector. Si no sube nada, el modelo usa la mediana ya guardada (2021–2025).")
+        archivos = st.file_uploader("Archivos de EMIS (Excel o CSV)", type=["xlsx", "xls", "csv"],
+                                    accept_multiple_files=True, key="emis_archivos")
+        firma = tuple((a.name, a.size) for a in archivos) if archivos else None
+        if firma and firma != st.session_state.get("emis_firma"):
+            nuevos = _leer_emis(archivos)
+            if nuevos is not None:
+                _aplicar(nuevos, "real")
+                st.session_state.emis_firma = firma
+                st.toast("Supuestos recalculados con los datos de EMIS.")
+                st.rerun()
+        c1, c3 = st.columns(2)
+        c1.download_button("Descargar plantilla", lic.plantilla_excel(), "plantilla_emis.xlsx",
+                           icon=":material/download:", width="stretch")
+        if c3.button("Volver a la mediana guardada", icon=":material/restart_alt:", width="stretch"):
+            st.session_state.update({"supuestos": sup_bogota, "supuestos_base": sup_bogota, "calibrado_emis": True,
+                                     "emis_resumen": None})
+            st.rerun()
+        if d is not None:
+            origen = st.session_state.get("emis_origen")
+            st.markdown(f"**Datos cargados:** {d['empresa'].nunique()} empresas, años {int(d['anio'].min())} a "
+                        f"{int(d['anio'].max())}" + (" · *operadores ficticios de prueba*" if origen == "ejemplo" else ""))
+            with st.expander("Ver los datos leídos"):
+                _tabla_datos(d)
+    with t2:
+        st.caption("Solo si una empresa autoriza usar sus datos mensuales (ventas, recaudo, pagos y saldo de bancos). "
+                   "Con ellos el modelo proyecta la caja de esa empresa en particular.")
+        cargar_empresa()
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +112,7 @@ def _diagnostico(d):
     st.caption("Promedio de los años cargados. El semáforo usa los mismos umbrales del tablero de indicadores.")
     disp = lic.disponibles(d)
     preferidos = [k for k in ["margen_ebitda", "margen_operacional", "dias_cartera", "liquidez",
-                              "endeudamiento", "deuda_ebitda", "palanca"] if k in disp][:4]
+                              "endeudamiento", "deuda_ebitda"] if k in disp][:4]
     cols = st.columns(4)
     for i, ind in enumerate(preferidos):
         nombre, tipo, ayuda = lic.INDICADORES[ind]
@@ -204,64 +239,27 @@ def _validacion(d):
 
 
 # ---------------------------------------------------------------------------
-def _calibrar(d):
-    st.markdown("#### Calibrar el modelo con los operadores reales de Bogotá")
-    st.caption("En lugar de inventar los supuestos, la empresa tipo toma el tamaño y el margen de la mediana "
-               "de los operadores. Las cifras internas de ninguna empresa se usan.")
-    s = st.session_state.supuestos
-    s_nuevo, cambios, r = lic.calibrar_modelo(s, d, m)
-    c = st.columns(4)
-    tarjeta(c[0], "Ingreso anual objetivo", pesos(r["ingreso_anual"]), "neutro",
-            f"mediana {r['anio']} de {r['empresas']} operadores", "recibo")
-    tarjeta(c[1], f"Margen {r['fuente_margen']} objetivo", pct(r["margen"] * 100), "neutro",
-            "mediana de los operadores", "porcentaje")
-    tarjeta(c[2], "Ingreso del modelo", pesos(r["ingreso_despues"]), "ok",
-            f"antes {pesos(r['ingreso_antes'])}", "tendencia")
-    tarjeta(c[3], "Margen del modelo", pct(r["margen_despues"] * 100), "ok",
-            f"antes {pct(r['margen_antes'] * 100)}", "objetivo")
-    lectura(f"Para parecerse a un operador típico de Bogotá, el modelo multiplica sus cifras en pesos por "
-            f"<b>{r['escala']:.2f}".replace(".", ",") + f"</b> (tamaño) y ajusta sus costos de operación por <b>" + f"{r['ajuste_costos']:.2f}".replace(".", ",") + "</b> "
-            f"(margen). Los porcentajes de recaudo, los rezagos de cobro y los meses de pago no cambian, porque "
-            f"EMIS no trae datos mensuales.", "Qué hace la calibración")
-    if cambios.empty or abs(r["escala"] - 1) < 1e-3 and abs(r["ajuste_costos"] - 1) < 1e-3:
-        st.success("El modelo ya está calibrado con la mediana del sector.")
-    else:
-        vista = cambios.copy()
-        vista["supuesto"] = vista["supuesto"].str.replace("_", " ").str.capitalize()
-        vista.columns = ["Supuesto", "Antes", "Calibrado con EMIS"]
-        with st.expander("Ver los supuestos que cambian"):
-            st.dataframe(vista, hide_index=True, width="stretch",
-                         column_config={k: st.column_config.NumberColumn(format="%,.3f") for k in vista.columns[1:]})
-    a, b = st.columns(2)
-    if a.button("Aplicar al modelo", type="primary", icon=":material/check:", width="stretch"):
-        st.session_state.supuestos = s_nuevo
-        st.session_state.supuestos_base = s_nuevo
-        st.session_state.calibrado_emis = True
-        st.toast("Modelo calibrado con la mediana del sector. Todo el aplicativo se recalculó.")
-        st.rerun()
-    if b.button("Volver a los supuestos originales", icon=":material/restart_alt:", width="stretch"):
-        st.session_state.supuestos = m.Supuestos()
-        st.session_state.supuestos_base = m.Supuestos()
-        st.session_state.calibrado_emis = False
-        st.rerun()
-
-
-# ---------------------------------------------------------------------------
-def pagina_sector():
-    encabezado("Datos", "9. Comparación con el sector (EMIS)",
-               "Compare el modelo con los estados financieros reales de los operadores de aseo de Bogotá: "
-               "diagnóstico, validación y calibración de los supuestos.",
-               "1) Suba los estados financieros de EMIS. 2) Vea cómo está cada operador frente a la mediana. "
-               "3) Revise, año por año, si el modelo proyectó mejor que la hoja tradicional. "
-               "4) Calibre el modelo para que la empresa tipo se parezca a un operador real.")
-    t1, t2, t3, t4 = st.tabs(["1. Cargar datos", "2. Diagnóstico de los operadores",
-                              "3. Validación año por año", "4. Calibrar el modelo"])
-    with t1:
-        _cargar()
+def pagina_sector(simulacion=None, pag_supuestos=None):
+    encabezado("Validación", "6. Validación con datos reales",
+               "Aquí se prueba la hipótesis H1: si el modelo proyecta mejor que la hoja de cálculo tradicional, "
+               "usando los estados financieros reales de los operadores de aseo de Bogotá.",
+               "1) Diagnóstico: cómo está cada operador frente a la mediana. 2) Validación año por año: con los años "
+               "anteriores el modelo proyecta el siguiente y se compara con lo real. 3) Simulación mensual: la misma "
+               "prueba, mes a mes, con datos simulados.")
+    tabs = st.tabs(["1. Diagnóstico de los operadores", "2. Validación año por año"]
+                   + (["3. Simulación mensual"] if simulacion else []))
     d = st.session_state.get("emis")
-    for t, fn in [(t2, _diagnostico), (t3, _validacion), (t4, _calibrar)]:
+    for t, fn in [(tabs[0], _diagnostico), (tabs[1], _validacion)]:
         with t:
             if d is None:
-                st.info("Primero cargue los datos en la pestaña 1.")
+                st.info("Primero cargue los estados financieros de EMIS en la parte superior de '1. Supuestos'.",
+                        icon=":material/info:")
+                if pag_supuestos is not None:
+                    st.page_link(pag_supuestos, label="Ir a 1. Supuestos", icon=":material/arrow_forward:")
             else:
                 fn(d)
+    if simulacion:
+        with tabs[2]:
+            st.caption("Complemento: como EMIS no trae datos mensuales, esta prueba usa meses simulados con "
+                       "resultado conocido para medir qué tan bien anticipa el modelo la caja mes a mes.")
+            simulacion()

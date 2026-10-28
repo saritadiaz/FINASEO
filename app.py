@@ -27,6 +27,7 @@ import asistente as ia
 import datos
 import informe
 import modelo as m
+from pagina_sector import fuente_de_supuestos, pagina_sector
 from estilo import (GRIS, NARANJA, NEGRO, PETROLEO, ROJO, VERDE, aplicar_estilos, dona, encabezado,
                     estilo_grafico, lectura, leyenda_estados, pct, pesos, tarjeta)
 
@@ -36,7 +37,12 @@ aplicar_estilos()
 # ---------------------------------------------------------------------------
 # Estado de la sesión (lo que se recuerda mientras la página está abierta)
 # ---------------------------------------------------------------------------
-for clave, valor in {"supuestos": m.Supuestos(), "supuestos_base": m.Supuestos(), "historial_ia": [],
+import sector_emis
+
+SUP_BOGOTA = sector_emis.calibrar_modelo(m.Supuestos(), None, m)[0]   # empresa tipo de Bogotá (mediana EMIS)
+
+for clave, valor in {"supuestos": SUP_BOGOTA, "supuestos_base": SUP_BOGOTA, "historial_ia": [],
+                     "calibrado_emis": True,
                      "hist_real": None, "pres_real": None, "inicio": (2027, 1), "archivo": None,
                      "usuarios_real": 450_000, "toneladas_real": 55_000.0, "esc": "Base"}.items():
     st.session_state.setdefault(clave, valor)
@@ -82,7 +88,6 @@ def estado_indicadores(ind, s):
         "cobertura": "ok" if ind["cobertura_caja_meses"] >= 1 else "alerta" if ind["cobertura_caja_meses"] >= 0.2 else "riesgo",
         "final": "ok" if ind["saldo_final"] >= s.caja_minima else "riesgo",
         "pkt": "ok" if ind["pkt_pct"] <= 15 else "alerta" if ind["pkt_pct"] <= 25 else "riesgo",
-        "palanca": "ok" if ind["palanca_crecimiento"] >= 1 else "riesgo",
         "deuda": "ok" if ind["deuda_ebitda"] <= 2.5 else "alerta" if ind["deuda_ebitda"] <= 3.5 else "riesgo",
     }
 
@@ -100,7 +105,7 @@ def barra_filtros():
         periodo = f"{proy['mes'].iloc[0]} a {proy['mes'].iloc[-1]}"
         c2.markdown(f"**Periodo proyectado**  \n{periodo}")
         fuente = (f'<span class="chip real">Datos cargados: {st.session_state.archivo}</span>' if REALES
-                  else '<span class="chip">Empresa tipo calibrada con EMIS</span>' if st.session_state.get("calibrado_emis")
+                  else '<span class="chip">Empresa tipo de Bogotá · mediana de 5 operadores (EMIS)</span>' if st.session_state.get("calibrado_emis")
                   else '<span class="chip">Datos sintéticos · empresa tipo</span>')
         c3.markdown(f"**Fuente de datos**  \n{fuente}", unsafe_allow_html=True)
         st.caption(m.DESCRIPCION_ESCENARIOS[esc])
@@ -120,13 +125,35 @@ def pagina_inicio():
         '<div class="portada"><div class="cubierta">'
         '<p class="inst">Universidad Libre de Colombia</p>'
         '<p class="fac">Facultad de Ciencias Económicas, Administrativas y Contables · Maestría en Finanzas</p>'
-        '<h1>Modelo financiero con inteligencia artificial para el presupuesto y el flujo de caja de una empresa de aseo en Bogotá</h1></div>'
+        '<h1>Modelo financiero con inteligencia artificial para el presupuesto y el flujo de caja de las empresas de aseo de Bogotá</h1></div>'
         '<div class="autoras"><div><span>Autora</span>Sandra Nope</div><div><span>Autora</span>Sara Cuta Díaz</div>'
         '<div><span>Trabajo escrito</span>Investigación I · 2026</div></div></div>', unsafe_allow_html=True)
 
+    st.subheader("¿Para qué sirve este modelo?")
+    st.markdown(
+        "Las empresas de aseo de Bogotá facturan cada mes, pero cobran semanas después, mientras la nómina, el "
+        "combustible y la disposición final se pagan de inmediato. Por eso una empresa rentable puede quedarse sin "
+        "caja. **Este modelo proyecta el presupuesto y el flujo de caja de los próximos 12 meses y le avisa al "
+        "gerente financiero, con anticipación, en qué mes le faltaría plata y por qué**, para que decida a tiempo "
+        "(financiarse, cobrar antes o aplazar pagos). La inteligencia artificial explica los resultados en palabras.")
+    r1, r2, r3 = st.columns(3)
+    r1.markdown('<div class="capa"><p class="rol">1 · Proyecta</p><h4>El modelo</h4><p>Con los supuestos (usuarios, '
+                'tarifa, recaudo y costos) calcula presupuesto, caja mes a mes e indicadores.</p></div>',
+                unsafe_allow_html=True)
+    r2.markdown('<div class="capa"><p class="rol">2 · Se valida</p><h4>Con datos reales</h4><p>Sus supuestos se '
+                'calibran con los 5 operadores de aseo de Bogotá (EMIS) y sus proyecciones se comparan año por año '
+                'con lo que realmente pasó.</p></div>', unsafe_allow_html=True)
+    r3.markdown('<div class="capa"><p class="rol">3 · Explica</p><h4>Asistente de IA</h4><p>Traduce las cifras a '
+                'lenguaje sencillo y genera alertas. Nunca inventa cifras: solo interpreta las del modelo.</p></div>',
+                unsafe_allow_html=True)
+
+    st.subheader("Resultados de la empresa tipo")
+    st.caption("¿De qué empresa son estas cifras? De una **empresa tipo de aseo de Bogotá**: tiene el tamaño "
+               "(ingresos de $221.290 M al año) y el margen operacional (17,6%) de la mediana de los cinco "
+               "operadores reales de la ciudad, según sus estados financieros en EMIS. No es ninguna empresa en "
+               "particular. ¿Para qué sirven? Para ver, mes a mes, si la caja alcanza y cuándo habría que actuar.")
     esc, s, proy, ind, periodo = barra_filtros()
     est = estado_indicadores(ind, s)
-    st.subheader("Resumen de la liquidez")
     c1, c2, c3, c4 = st.columns(4)
     tarjeta(c1, "Caja mínima proyectada", pesos(ind["caja_minima_proyectada"]), est["caja"],
             f"mínimo {pesos(s.caja_minima)}", "caja", "Saldo más bajo que tendrá la caja en los 12 meses proyectados.")
@@ -147,58 +174,11 @@ def pagina_inicio():
                 f"El momento más ajustado es {ind['mes_critico']}, con una holgura de {pesos(holgura)} sobre el mínimo. "
                 "Pruebe el escenario pesimista para ver qué pasaría si el recaudo se demora.")
 
-    st.subheader("Empiece aquí")
-    p1, p2, p3, p4 = st.columns(4)
-    for col, n, tit, txt, destino in [
-        (p1, 1, "Revise los supuestos", "Los drivers que mueven la caja: usuarios, tarifa, recaudo y costos.", PAG_SUPUESTOS),
-        (p2, 2, "Proyecte el flujo de caja", "Compare los tres escenarios y ubique el mes crítico.", PAG_FLUJO),
-        (p3, 3, "Lea el informe", "Gráficos de barras que explican las cifras mes a mes.", PAG_INFORME),
-        (p4, 4, "Pregunte al asistente", "La IA explica en palabras lo que muestran las cifras.", PAG_ASISTENTE),
-    ]:
-        with col:
-            st.markdown(f'<div class="paso"><div class="num">{n}</div><h4>{tit}</h4><p>{txt}</p></div>',
-                        unsafe_allow_html=True)
-            st.page_link(destino, label="Ir ahora", icon=":material/arrow_forward:")
-
-    st.subheader("Cómo funciona la solución")
-    k1, k2, k3 = st.columns(3)
-    k1.markdown('<div class="capa"><p class="rol">El motor</p><h4>Modelo financiero</h4><p>Proyecta el flujo de caja '
-                'por drivers, controla el presupuesto y calcula los indicadores. Hace todas las cuentas.</p></div>',
-                unsafe_allow_html=True)
-    k2.markdown('<div class="capa"><p class="rol">El medio</p><h4>Aplicativo</h4><p>Pone el modelo al alcance de la '
-                'gerencia con escenarios, gráficos y explicaciones, sin hojas de cálculo complejas.</p></div>',
-                unsafe_allow_html=True)
-    k3.markdown('<div class="capa"><p class="rol">El intérprete</p><h4>Asistente de IA</h4><p>Explica en lenguaje '
-                'natural lo que muestran las cifras y genera alertas. Nunca inventa cifras.</p></div>',
-                unsafe_allow_html=True)
+    with st.expander("Glosario de términos"):
+        glosario()
 
 
-def pagina_guia():
-    encabezado("General", "Guía de uso",
-               "Recorrido sugerido, qué responde cada módulo dentro de la investigación y glosario de términos.")
-    st.subheader("Recorrido de 5 minutos")
-    pasos = [
-        (PAG_SUPUESTOS, "Mire los drivers: de ahí sale toda la proyección."),
-        (PAG_FLUJO, "Cambie el escenario a pesimista y observe cuándo la caja cruza el mínimo."),
-        (PAG_INFORME, "Lea el informe en barras: explica facturación, recaudo, egresos y caja."),
-        (PAG_BACKTESTING, "Ejecute la prueba repetida: es la evidencia de la hipótesis H1."),
-        (PAG_ASISTENTE, "Revise las alertas y lo que se le envía a la IA."),
-    ]
-    for i, (pag, txt) in enumerate(pasos, start=1):
-        c1, c2 = st.columns([1.5, 4], vertical_alignment="center")
-        c1.page_link(pag, label=f"Paso {i}: {pag.title}", icon=pag.icon)
-        c2.write(txt)
-
-    st.subheader("Qué responde cada módulo en el trabajo escrito")
-    st.dataframe(pd.DataFrame([
-        ["Supuestos, presupuesto, flujo de caja, indicadores e informe", "Pregunta específica 1", "Arquitectura funcional y drivers financieros"],
-        ["Backtesting", "Pregunta 2 · Hipótesis H1", "Precisión de la proyección (MAPE) frente a la hoja de cálculo"],
-        ["Asistente IA", "Pregunta 3 · Hipótesis H3", "Calidad de los análisis de la IA frente a los de un analista"],
-        ["Todo el aplicativo", "Pregunta 4", "Aceptación por parte de los usuarios (encuesta TAM)"],
-        ["Carga de datos", "Validación con datos reales", "Uso del modelo con información de una empresa, con autorización"],
-    ], columns=["Módulo", "Responde a", "Qué se evalúa"]), hide_index=True, width="stretch")
-
-    st.subheader("Glosario")
+def glosario():
     st.dataframe(pd.DataFrame([
         ["Driver", "Variable que mueve los resultados: usuarios, tarifa, tasa de recaudo, costos."],
         ["Flujo de caja", "Dinero que efectivamente entra y sale cada mes (criterio de caja, no de causación)."],
@@ -215,10 +195,12 @@ def pagina_guia():
 
 
 def pagina_supuestos():
-    encabezado("Planeación financiera", "1. Supuestos y drivers",
+    encabezado("El modelo financiero", "1. Supuestos y drivers",
                "Los drivers son las variables que mueven la caja. Todo el aplicativo se recalcula a partir de ellos.",
                ["Cada pestaña agrupa un tipo de driver.", "Pase el cursor sobre el signo ? de cada casilla para ver qué significa.",
                 "Cambie los valores y haga clic en 'Aplicar cambios'.", "Vaya al flujo de caja para ver el efecto."])
+    fuente_de_supuestos(m, SUP_BOGOTA, lambda: pagina_carga(embebido=True))
+    st.subheader("Supuestos del modelo")
     s = st.session_state.supuestos
     ayudas = {
         "usuarios": ("Usuarios facturados", "Suscriptores a los que se les factura el servicio cada mes."),
@@ -291,8 +273,8 @@ def cargar_presupuesto(abierto=False):
     with st.expander("Cargar el presupuesto de la empresa (Excel o CSV)", expanded=abierto, icon=":material/upload_file:"):
         if not REALES:
             st.info("Para comparar, el aplicativo necesita también lo **ejecutado** (lo que realmente pasó). "
-                    "Cárguelo primero en '7. Carga de datos' y vuelva aquí.", icon=":material/info:")
-            st.page_link(PAG_CARGA, label="Ir a la carga de datos", icon=":material/arrow_forward:")
+                    "Cárguelo primero en '1. Supuestos' y vuelva aquí.", icon=":material/info:")
+            st.page_link(PAG_SUPUESTOS, label="Ir a 1. Supuestos para cargar los datos", icon=":material/arrow_forward:")
             return
         st.caption("Un archivo con el presupuesto mes a mes: fecha, recaudo o facturación presupuestada y los rubros de "
                    "egresos. Las columnas se reconocen solas por su nombre.")
@@ -326,7 +308,7 @@ def cargar_presupuesto(abierto=False):
 
 def pagina_presupuesto():
     pres, ejec = presupuesto_y_ejecutado()
-    encabezado("Planeación financiera", "2. Presupuesto",
+    encabezado("El modelo financiero", "2. Presupuesto",
                "Compara lo presupuestado con lo ejecutado para detectar a tiempo las desviaciones.",
                ["Elija el mes cerrado que quiere revisar.", "La pestaña 'Resumen del mes' muestra lo esencial.",
                 "En 'Detalle por rubro', las filas en rojo son desviaciones desfavorables.",
@@ -403,7 +385,7 @@ def pagina_presupuesto():
 
 
 def pagina_flujo():
-    encabezado("Planeación financiera", "3. Flujo de caja",
+    encabezado("El modelo financiero", "3. Flujo de caja",
                "Proyecta mes a mes cuánto dinero tendrá la empresa, para anticipar faltantes de liquidez.",
                ["Elija el escenario en la barra superior.", "La línea roja punteada es la caja mínima operativa.",
                 "Si la línea del escenario cruza la línea roja, la empresa necesitará financiación ese mes.",
@@ -489,16 +471,13 @@ def num(v, dec=1):
 
 
 def capital_de_trabajo(ind, est, s):
-    """Pestaña de capital de trabajo, palanca de crecimiento y deuda / EBITDA."""
-    c1, c2, c3, c4 = st.columns(4)
+    """Pestaña de capital de trabajo y deuda / EBITDA."""
+    c1, c2, c4 = st.columns(3)
     tarjeta(c1, "KTNO", pesos(ind["ktno"]), "neutro", "cartera + inventarios − proveedores", "caja",
             "Capital de trabajo neto operativo: la plata que la operación tiene 'atrapada' en cartera e inventarios, "
             "menos lo que todavía se debe a proveedores.")
     tarjeta(c2, "Productividad del KT", pct(ind["pkt_pct"]), est["pkt"], "KTNO ÷ ingresos anuales", "porcentaje",
             "Cuántos centavos de capital de trabajo necesita cada peso de ingresos. Entre más bajo, mejor.")
-    tarjeta(c3, "Palanca de crecimiento", f"{num(ind['palanca_crecimiento'], 2)} veces", est["palanca"],
-            "margen EBITDA ÷ PKT", "tendencia",
-            "Si es mayor que 1, crecer genera caja; si es menor que 1, crecer consume caja.")
     tarjeta(c4, "Deuda / EBITDA", f"{num(ind['deuda_ebitda'], 2)} veces", est["deuda"], "meta ≤ 2,5 veces", "escudo",
             "Saldo de la deuda ÷ EBITDA anual: cuántos años de EBITDA se necesitan para pagar la deuda.")
     leyenda_estados()
@@ -515,13 +494,9 @@ def capital_de_trabajo(ind, est, s):
     fig.update_yaxes(range=[0, (ind["cartera"] + s.inventarios) * 1.15])
     st.plotly_chart(fig, width="stretch")
 
-    palanca = ind["palanca_crecimiento"]
-    lectura(f"La operación tiene {pesos(ind['ktno'])} invertidos en capital de trabajo: por cada $100 de ingresos se "
-            f"necesitan ${num(ind['pkt_pct'], 1)} de capital de trabajo. Como el margen EBITDA ({pct(ind['margen_ebitda_pct'])}) es "
-            + (f"mayor que esa necesidad, la palanca de crecimiento es {num(palanca, 2)}: crecer genera caja, así que la "
-               "empresa puede crecer sin quedarse sin liquidez." if palanca >= 1 else
-               f"menor que esa necesidad, la palanca de crecimiento es {num(palanca, 2)}: crecer consumiría caja; antes de "
-               "crecer conviene mejorar el recaudo o negociar plazos con proveedores.")
+    lectura(f"La operación tiene {pesos(ind['ktno'])} invertidos en capital de trabajo, sobre todo en cartera: por "
+            f"cada $100 de ingresos se necesitan ${num(ind['pkt_pct'], 1)} de capital de trabajo. Si el recaudo se "
+            "demora, esa cifra crece y la caja se aprieta; cobrar más rápido o negociar plazos con proveedores la reduce."
             + f" La deuda equivale a {num(ind['deuda_ebitda'], 2)} años de EBITDA, "
             + ("un nivel manejable." if ind["deuda_ebitda"] <= 2.5 else "un nivel alto: limita la capacidad de pedir nuevos créditos."),
             "Qué significa para la gerencia")
@@ -557,9 +532,6 @@ def verificar_indicadores(proy, ind, s, esc):
          "Referencia (se interpreta con la productividad del KT)"],
         ["Productividad del KT", "KTNO ÷ ingresos anuales",
          f"{pesos(ind['ktno'])} ÷ {pesos(ind['ingresos_anuales'])}", pct(ind["pkt_pct"]), "Saludable si ≤ 15%; vigilar si ≤ 25%"],
-        ["Palanca de crecimiento", "Margen EBITDA ÷ productividad del KT",
-         f"{pct(ind['margen_ebitda_pct'])} ÷ {pct(ind['pkt_pct'])}", f"{num(ind['palanca_crecimiento'], 2)} veces",
-         "Favorable si ≥ 1 (crecer genera caja)"],
         ["Deuda / EBITDA", "Saldo de la deuda ÷ EBITDA anual",
          f"{pesos(s.saldo_deuda)} ÷ {pesos(ind['ebitda_anual'])}", f"{num(ind['deuda_ebitda'], 2)} veces",
          "Saludable si ≤ 2,5; vigilar si ≤ 3,5"],
@@ -576,7 +548,7 @@ def verificar_indicadores(proy, ind, s, esc):
 
 
 def pagina_indicadores():
-    encabezado("Análisis", "4. Indicadores",
+    encabezado("El modelo financiero", "4. Indicadores",
                "Tablero con los indicadores de liquidez, rentabilidad y recaudo, con semáforo y fórmula de cada uno.",
                ["El color del borde inferior es el semáforo del indicador.", "Pase el cursor sobre el signo ? para ver la fórmula.",
                 "Los umbrales son de referencia y se validarán con expertos."])
@@ -651,12 +623,13 @@ def pagina_indicadores():
                 "Es donde una mejora de eficiencia tendría más efecto sobre la caja.")
 
 
-def pagina_backtesting():
-    encabezado("Investigación", "5. Backtesting (hipótesis H1)",
-               "Comprueba si el modelo proyecta la caja con menos error que el método tradicional en hoja de cálculo.",
-               ["Empiece por la pestaña '¿Qué es?'.", "En 'Una simulación' verá un caso; cambie el número para ver otro.",
-                "En 'Prueba repetida' está la evidencia estadística de la hipótesis H1.",
-                "Si cargó 24 meses o más de datos reales, aparece la pestaña 'Datos cargados'."])
+def pagina_backtesting(embebido=False):
+    if not embebido:
+        encabezado("Investigación", "5. Backtesting (hipótesis H1)",
+                   "Comprueba si el modelo proyecta la caja con menos error que el método tradicional en hoja de cálculo.",
+                   ["Empiece por la pestaña '¿Qué es?'.", "En 'Una simulación' verá un caso; cambie el número para ver otro.",
+                    "En 'Prueba repetida' está la evidencia estadística de la hipótesis H1.",
+                    "Si cargó 24 meses o más de datos reales, aparece la pestaña 'Datos cargados'."])
     s = st.session_state.supuestos
     nombres = ["¿Qué es?", "Una simulación", "Prueba repetida (H1)"]
     con_real = REALES and len(st.session_state.hist_real) >= datos.MESES_BACKTESTING
@@ -771,7 +744,7 @@ def pagina_backtesting():
 
 
 def pagina_asistente():
-    encabezado("Análisis", "6. Asistente de inteligencia artificial",
+    encabezado("El modelo financiero", "5. Asistente de inteligencia artificial",
                "La IA interpreta en palabras las cifras del modelo. Recibe solo indicadores agregados y nunca inventa cifras.",
                ["Primero revise las alertas automáticas, calculadas con reglas.", "Elija una pregunta sugerida o escriba la suya.",
                 "En la última pestaña puede ver exactamente qué se le envía a la IA."])
@@ -872,14 +845,15 @@ def revisar_columnas(df, clave, quitar=(), abierto=False):
     return mapeo
 
 
-def pagina_carga():
-    encabezado("Datos", "7. Carga de datos",
-               "Cargue el archivo de la empresa, en Excel o CSV, y el aplicativo le muestra de inmediato el informe con "
-               "gráficos. Después puede usar esos datos en todo el aplicativo.",
-               ["Cargue su archivo: el aplicativo reconoce solo las columnas por su nombre.",
-                "Revise que cada dato se haya leído de la columna correcta.",
-                "Lea el informe que aparece abajo.",
-                "Si quiere, use los datos en el presupuesto, el flujo de caja y los indicadores."])
+def pagina_carga(embebido=False):
+    if not embebido:
+        encabezado("Datos y validación", "7. Datos de una empresa",
+                   "Cargue el archivo de la empresa, en Excel o CSV, y el aplicativo le muestra de inmediato el informe con "
+                   "gráficos. Después puede usar esos datos en todo el aplicativo.",
+                   ["Cargue su archivo: el aplicativo reconoce solo las columnas por su nombre.",
+                    "Revise que cada dato se haya leído de la columna correcta.",
+                    "Lea el informe que aparece abajo.",
+                    "Si quiere, use los datos en el presupuesto, el flujo de caja y los indicadores."])
     st.warning("**Confidencialidad:** use datos reales solo con autorización de la empresa, y preferiblemente en un "
                "computador de la empresa. Los datos no se guardan: se borran al recargar la página.", icon=":material/lock:")
 
@@ -888,15 +862,21 @@ def pagina_carga():
                                     "Fecha, Ventas, Recaudo, Nómina, Combustible y Saldo bancos.")
     if archivo is None:
         if REALES:
-            st.success(f"El aplicativo está usando los datos de **{st.session_state.archivo}**. "
-                       "Su informe está en '8. Informe de los datos'.", icon=":material/check_circle:")
+            st.success(f"El aplicativo está usando los datos de **{st.session_state.archivo}**.",
+                       icon=":material/check_circle:")
+            informe.mostrar_informe(st.session_state.hist_real, st.session_state.supuestos.caja_minima,
+                                    f"datos cargados de {st.session_state.archivo}")
             if st.button("Volver a los datos sintéticos", icon=":material/undo:"):
                 st.session_state.update({"hist_real": None, "pres_real": None, "inicio": (2027, 1), "archivo": None,
-                                         "supuestos": m.Supuestos(), "supuestos_base": m.Supuestos(), "historial_ia": []})
+                                         "supuestos": SUP_BOGOTA, "supuestos_base": SUP_BOGOTA, "historial_ia": []})
                 for f in fields(m.Supuestos):
                     st.session_state.pop(f"in_{f.name}", None)
                 st.rerun()
         ayuda_plantilla()
+        if not REALES:
+            with st.expander("Ver un informe de ejemplo (36 meses de datos sintéticos)"):
+                informe.mostrar_informe(historico_ejemplo(), st.session_state.supuestos.caja_minima,
+                                        "datos sintéticos de ejemplo")
         return
 
     try:
@@ -958,42 +938,28 @@ def pagina_carga():
     ayuda_plantilla()
 
 
-def pagina_informe():
-    encabezado("Datos", "8. Informe de los datos",
-               "Gráficos de barras que explican, mes a mes, cuánto se facturó y recaudó, en qué se gastó y cómo evolucionó la caja.",
-               ["Cada gráfico responde una pregunta, escrita en su título.", "Debajo de cada gráfico, la lectura explica la cifra más importante.",
-                "Al final puede descargar el informe en Excel."])
-    if REALES:
-        hist, origen = st.session_state.hist_real, f"datos cargados de {st.session_state.archivo}"
-    else:
-        hist, origen = historico_ejemplo(), "datos sintéticos de ejemplo (cargue un Excel para ver sus propios datos)"
-        st.info("Este informe usa los 36 meses de ejemplo de la plantilla. Al cargar un Excel en el módulo 7, "
-                "se genera con sus datos.", icon=":material/info:")
-    informe.mostrar_informe(hist, st.session_state.supuestos.caja_minima, origen)
-
-
 # ---------------------------------------------------------------------------
 # NAVEGACIÓN: menú lateral agrupado por secciones
 # ---------------------------------------------------------------------------
 PAG_INICIO = st.Page(pagina_inicio, title="Inicio", icon=":material/home:", default=True)
-PAG_GUIA = st.Page(pagina_guia, title="Guía de uso", icon=":material/school:", url_path="guia")
-PAG_SUPUESTOS = st.Page(pagina_supuestos, title="1. Supuestos y drivers", icon=":material/tune:", url_path="supuestos")
+PAG_SUPUESTOS = st.Page(pagina_supuestos, title="1. Supuestos", icon=":material/tune:", url_path="supuestos")
 PAG_PRESUPUESTO = st.Page(pagina_presupuesto, title="2. Presupuesto", icon=":material/request_quote:", url_path="presupuesto")
 PAG_FLUJO = st.Page(pagina_flujo, title="3. Flujo de caja", icon=":material/payments:", url_path="flujo-de-caja")
 PAG_INDICADORES = st.Page(pagina_indicadores, title="4. Indicadores", icon=":material/monitoring:", url_path="indicadores")
-PAG_BACKTESTING = st.Page(pagina_backtesting, title="5. Backtesting (H1)", icon=":material/science:", url_path="backtesting")
-PAG_ASISTENTE = st.Page(pagina_asistente, title="6. Asistente IA", icon=":material/smart_toy:", url_path="asistente")
-PAG_CARGA = st.Page(pagina_carga, title="7. Carga de datos (Excel)", icon=":material/upload_file:", url_path="carga-de-datos")
-from pagina_sector import pagina_sector
-PAG_SECTOR = st.Page(pagina_sector, title="9. Comparación con el sector (EMIS)", icon=":material/leaderboard:", url_path="sector")
-PAG_INFORME = st.Page(pagina_informe, title="8. Informe de los datos", icon=":material/bar_chart:", url_path="informe")
+PAG_ASISTENTE = st.Page(pagina_asistente, title="5. Asistente IA", icon=":material/smart_toy:", url_path="asistente")
+
+
+def pagina_validacion():
+    pagina_sector(simulacion=lambda: pagina_backtesting(embebido=True), pag_supuestos=PAG_SUPUESTOS)
+
+
+PAG_VALIDACION = st.Page(pagina_validacion, title="6. Validación con datos reales", icon=":material/fact_check:",
+                         url_path="validacion")
 
 navegacion = st.navigation({
-    "General": [PAG_INICIO, PAG_GUIA],
-    "Planeación financiera": [PAG_SUPUESTOS, PAG_PRESUPUESTO, PAG_FLUJO],
-    "Análisis": [PAG_INDICADORES, PAG_ASISTENTE],
-    "Investigación": [PAG_BACKTESTING],
-    "Datos": [PAG_CARGA, PAG_INFORME, PAG_SECTOR],
+    "": [PAG_INICIO],
+    "El modelo financiero": [PAG_SUPUESTOS, PAG_PRESUPUESTO, PAG_FLUJO, PAG_INDICADORES, PAG_ASISTENTE],
+    "Validación": [PAG_VALIDACION],
 })
 
 st.logo("logo.svg", size="large")

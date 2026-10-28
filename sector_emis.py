@@ -253,7 +253,6 @@ INDICADORES = {
     "crecimiento": ("Crecimiento de ingresos", "pct", "Cuánto crecieron los ingresos frente al año anterior."),
     "dias_cartera": ("Días de cartera", "dias", "Cuántos días tarda en cobrar lo que factura."),
     "pkt": ("Productividad del capital de trabajo (PKT)", "pct", "Cuánto capital de trabajo necesita por cada $100 de ingresos."),
-    "palanca": ("Palanca de crecimiento", "veces", "Mayor a 1: crecer le genera caja. Menor a 1: crecer le consume caja."),
     "deuda_ebitda": ("Deuda / EBITDA", "veces", "Cuántos años de EBITDA necesita para pagar la deuda."),
     "margen_neto": ("Margen neto", "pct", "Utilidad final por cada $100 de ingresos."),
     "liquidez": ("Razón de liquidez", "veces", "Cuántos pesos de activo corriente tiene por cada peso que debe a corto plazo."),
@@ -363,11 +362,18 @@ def objetivos_sector(d):
             "empresas": int(d["empresa"].nunique())}
 
 
-def calibrar_modelo(s, d, modelo):
+# Mediana de los 5 operadores de aseo de Bogotá (EMIS, estados financieros 2021-2025).
+# Solo se guardan estos dos agregados; los estados financieros de cada empresa no se publican.
+OBJETIVO_BOGOTA = {"ingreso_anual": 221_289.946, "anio": 2025, "margen": 0.1756,
+                   "fuente_margen": "operacional (EBIT)", "empresas": 5}
+
+
+def calibrar_modelo(s, d, modelo, obj=None):
     """Ajusta los supuestos del modelo para que la empresa tipo tenga el tamaño y el margen
-    de la mediana de los operadores reales. Devuelve (supuestos_nuevos, tabla_de_cambios)."""
+    de la mediana de los operadores reales. Devuelve (supuestos_nuevos, tabla_de_cambios, resumen).
+    Si no se pasan datos (d=None), usa la mediana guardada en OBJETIVO_BOGOTA."""
     from dataclasses import replace, asdict
-    obj = objetivos_sector(d)
+    obj = obj or (objetivos_sector(d) if d is not None else OBJETIVO_BOGOTA)
     ind0 = modelo.indicadores(modelo.proyectar(s), s)
     escala = obj["ingreso_anual"] / ind0["ingresos_anuales"]
     s1 = replace(s, tarifa_promedio=s.tarifa_promedio * escala,

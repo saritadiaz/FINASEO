@@ -42,7 +42,10 @@ def _leer_emis(archivos):
 
 
 def aplicar_empresa(d, origen, empresa=None):
-    """Guarda los datos y construye los supuestos del modelo con ellos."""
+    """Guarda los datos y construye los supuestos del modelo con las cifras de UNA empresa real."""
+    if empresa is None:
+        nombres = sorted(d["empresa"].unique())
+        empresa = "LIME" if "LIME" in nombres else nombres[0]
     b = lic.base_empresa(d, empresa)
     s_nuevo, fuentes = lic.supuestos_reales(b, m)
     st.session_state.update({"emis": d, "emis_origen": origen, "supuestos": s_nuevo, "supuestos_base": s_nuevo,
@@ -64,16 +67,6 @@ def _tabla_datos(d):
 def fuente_de_supuestos(modelo_mod, sup_bogota, fuentes_bogota, cargar_empresa):
     """Parte superior de '1. Supuestos': qué empresa se proyecta y de dónde sale cada valor."""
     d = st.session_state.get("emis")
-    if d is not None:
-        opciones = ["Mediana del sector"] + sorted(d["empresa"].unique())
-        actual = st.session_state.get("empresa_modelo", "")
-        idx = next((k for k, o in enumerate(opciones) if o == actual), 0)
-        elegida = st.selectbox("Empresa a proyectar", opciones, index=idx, key="sel_empresa_modelo",
-                               help="Elija un operador para proyectar su presupuesto y su caja con sus propias cifras.")
-        nombre = None if elegida == "Mediana del sector" else elegida
-        if (nombre or lic.base_empresa(d)["nombre"]) != actual:
-            aplicar_empresa(d, st.session_state.get("emis_origen", "real"), nombre)
-            st.rerun()
     if st.session_state.get("hist_real") is not None:
         st.info(f"El modelo está usando los datos mensuales de **{st.session_state.archivo}**.", icon=":material/info:")
     fuentes = st.session_state.get("fuentes")
@@ -88,8 +81,7 @@ def fuente_de_supuestos(modelo_mod, sup_bogota, fuentes_bogota, cargar_empresa):
     st.caption("EMIS: estados financieros reportados a la Cámara de Comercio de Bogotá. Fuentes públicas: DANE, UAESP, "
                "Superservicios, Alcaldía de Bogotá y Ley 2277 de 2022.")
     with st.expander("Cargar o cambiar los estados financieros de EMIS"):
-        st.caption("Suba el Excel con los estados financieros de los operadores. Los supuestos se recalculan solos. "
-                   "Si no sube nada, el modelo usa la mediana de 2025 ya guardada.")
+        st.caption("Suba los 5 Excel de EMIS (uno por empresa). Después elija la empresa en el menú de la izquierda.")
         archivos = st.file_uploader("Archivos de EMIS (Excel o CSV)", type=["xlsx", "xls", "csv"],
                                     accept_multiple_files=True, key="emis_archivos")
         firma = tuple((a.name, a.size) for a in archivos) if archivos else None
@@ -103,7 +95,7 @@ def fuente_de_supuestos(modelo_mod, sup_bogota, fuentes_bogota, cargar_empresa):
         c1, c3 = st.columns(2)
         c1.download_button("Descargar plantilla", lic.plantilla_excel(), "plantilla_emis.xlsx",
                            icon=":material/download:", width="stretch")
-        if c3.button("Volver a la mediana guardada", icon=":material/restart_alt:", width="stretch"):
+        if c3.button("Quitar los datos cargados", icon=":material/restart_alt:", width="stretch"):
             st.session_state.update({"supuestos": sup_bogota, "supuestos_base": sup_bogota, "calibrado_emis": True,
                                      "fuentes": fuentes_bogota, "empresa_modelo": lic.REFERENCIA_BOGOTA["nombre"],
                                      "emis": None, "emis_firma": None})

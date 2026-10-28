@@ -120,23 +120,12 @@ def barra_filtros():
         proy = proyectar_app(s, esc)
         periodo = f"{proy['mes'].iloc[0]} a {proy['mes'].iloc[-1]}"
         c2.markdown(f"**Periodo proyectado**  \n{periodo}")
-        d_emis = st.session_state.get("emis")
         if REALES:
             c3.markdown(f"**Empresa**  \n<span class=\"chip real\">Datos cargados: {st.session_state.archivo}</span>",
                         unsafe_allow_html=True)
-        elif d_emis is not None:
-            opciones = ["Mediana del sector"] + sorted(d_emis["empresa"].unique())
-            actual = st.session_state.empresa_modelo
-            idx = next((k for k, o in enumerate(opciones) if o == actual), 0)
-            elegida = c3.selectbox("Empresa", opciones, index=idx, key="empresa_barra",
-                                   help="Todo el aplicativo se recalcula con las cifras reales de la empresa elegida.")
-            nombre = None if elegida == "Mediana del sector" else elegida
-            if (nombre or sector_emis.base_empresa(d_emis)["nombre"]) != actual:
-                aplicar_empresa(d_emis, st.session_state.get("emis_origen", "real"), nombre)
-                st.rerun()
         else:
-            c3.markdown(f"**Empresa**  \n<span class=\"chip\">{st.session_state.empresa_modelo} · EMIS</span>",
-                        unsafe_allow_html=True)
+            c3.markdown(f"**Empresa**  \n<span class=\"chip\">{st.session_state.empresa_modelo}</span>  \n"
+                        "<small>Cámbiela en el menú de la izquierda</small>", unsafe_allow_html=True)
         st.caption(m.DESCRIPCION_ESCENARIOS[esc])
     return esc, s, proy, m.indicadores(proy, m.aplicar_escenario(s, esc)), periodo
 
@@ -521,8 +510,15 @@ def flujo_cinco_empresas(esc):
                 icon=":material/info:")
         st.page_link(PAG_SUPUESTOS, label="Ir a 1. Supuestos", icon=":material/arrow_forward:")
         return
+    todas = sorted(d["empresa"].unique())
+    elegidas = st.multiselect("Empresas a comparar", todas, default=todas, key="comparar_empresas",
+                              help="Quite o agregue empresas para compararlas entre sí, por ejemplo solo dos.")
+    if not elegidas:
+        st.info("Elija al menos una empresa.")
+        return
     filas, fig = [], go.Figure()
-    for k, emp in enumerate(sorted(d["empresa"].unique())):
+    for emp in elegidas:
+        k = todas.index(emp)
         s_e, _ = sector_emis.supuestos_reales(sector_emis.base_empresa(d, emp), m)
         pr = m.proyectar(s_e, esc, anio_inicio=ANIO_P, mes_inicio=MES_P)
         ind_e = m.indicadores(pr, m.aplicar_escenario(s_e, esc))
@@ -533,17 +529,18 @@ def flujo_cinco_empresas(esc):
                       "Flujo neto 2027": pesos(pr["flujo_neto"].sum()),
                       "Caja más baja": pesos(ind_e["caja_minima_proyectada"]), "Mes crítico": ind_e["mes_critico"],
                       "Meses bajo el mínimo": ind_e["meses_bajo_minimo"], "_flujo": pr["flujo_neto"].sum()})
-    estilo_grafico(fig, 430, f"Saldo de caja proyectado 2027 por operador · escenario {esc.lower()}")
+    estilo_grafico(fig, 430, f"Saldo de caja proyectado 2027 · escenario {esc.lower()}")
     fig.update_layout(yaxis_title="Millones de pesos")
     st.plotly_chart(fig, width="stretch")
     tabla = pd.DataFrame(filas)
-    st.table(tabla.drop(columns="_flujo").set_index("Empresa"))
+    st.table(tabla.drop(columns="_flujo").set_index("Empresa").astype(str).T)
     mejor = tabla.loc[tabla["_flujo"].idxmax(), "Empresa"]
     peor = tabla.loc[tabla["_flujo"].idxmin(), "Empresa"]
     riesgo = tabla[tabla["Meses bajo el mínimo"] > 0]["Empresa"].tolist()
     lectura(f"Cada línea es la caja proyectada de un operador con sus propios estados financieros 2025. "
             f"<b>{mejor}</b> es el que más caja genera en el año y <b>{peor}</b> el que menos. "
-            + (f"En el escenario {esc.lower()}, {', '.join(riesgo)} quedaría por debajo de su caja mínima algún mes."
+            + (f"En el escenario {esc.lower()}, {', '.join(riesgo[:-1]) + ' y ' + riesgo[-1] if len(riesgo) > 1 else riesgo[0]} "
+               f"{'quedarían' if len(riesgo) > 1 else 'quedaría'} por debajo de su caja mínima algún mes."
                if riesgo else f"En el escenario {esc.lower()}, ningún operador baja de su caja mínima."),
             "Comparación de los operadores")
 
@@ -551,7 +548,7 @@ def flujo_cinco_empresas(esc):
 def pagina_flujo():
     encabezado("El modelo financiero", "3. Flujo de caja",
                f"Proyecta mes a mes cuánto dinero tendrá {st.session_state.empresa_modelo} en 2027, para anticipar "
-               "faltantes de liquidez. En 'Las 5 empresas' se comparan todos los operadores.",
+               "faltantes de liquidez. En 'Comparar empresas' puede poner una al lado de la otra.",
                ["Elija el escenario en la barra superior.", "La línea roja punteada es la caja mínima operativa.",
                 "Si la línea del escenario cruza la línea roja, la empresa necesitará financiación ese mes.",
                 "La pestaña 'Entradas y salidas' muestra en barras de dónde viene el resultado de cada mes."])
@@ -566,7 +563,7 @@ def pagina_flujo():
     tarjeta(c4, "Saldo final", pesos(ind["saldo_final"]), est["final"], proy["mes"].iloc[-1], "tendencia",
             "Saldo de caja al cierre del periodo proyectado.")
 
-    t1, t5, t2, t3, t4 = st.tabs(["Proyección", "Las 5 empresas", "Entradas y salidas", "Detalle mensual", "Sensibilidad"])
+    t1, t5, t2, t3, t4 = st.tabs(["Proyección", "Comparar empresas", "Entradas y salidas", "Detalle mensual", "Sensibilidad"])
     with t5:
         flujo_cinco_empresas(esc)
     with t1:
@@ -1138,6 +1135,17 @@ navegacion = st.navigation({
 st.logo("logo.svg", size="large")
 with st.sidebar:
     st.divider()
+    d_menu = st.session_state.get("emis")
+    if d_menu is not None and not REALES:
+        nombres = sorted(d_menu["empresa"].unique())
+        actual = st.session_state.empresa_modelo
+        elegida = st.selectbox("Empresa", nombres, index=nombres.index(actual) if actual in nombres else 0,
+                               key="empresa_menu", help="Todo el aplicativo muestra los datos exactos de esta empresa.")
+        if elegida != actual:
+            aplicar_empresa(d_menu, st.session_state.get("emis_origen", "real"), elegida)
+            st.rerun()
+    elif not REALES:
+        st.caption("Para elegir una empresa, cargue los estados financieros de EMIS en '1. Supuestos'.")
     if REALES:
         st.caption(f"Datos cargados: {st.session_state.archivo}. Manéjelos con confidencialidad.")
     else:

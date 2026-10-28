@@ -27,8 +27,8 @@ import asistente as ia
 import datos
 import informe
 import modelo as m
-from pagina_sector import fuente_de_supuestos, pagina_sector
-from estilo import (GRIS, NARANJA, NEGRO, PETROLEO, ROJO, VERDE, aplicar_estilos, dona, encabezado,
+from pagina_sector import aplicar_empresa, fuente_de_supuestos, pagina_sector
+from estilo import (AZUL, GRIS, NARANJA, NEGRO, PETROLEO, ROJO, VERDE, aplicar_estilos, dona, encabezado,
                     estilo_grafico, lectura, leyenda_estados, pct, pesos, tarjeta)
 
 st.set_page_config(page_title="FinAseo", page_icon=":material/eco:", layout="wide")
@@ -39,13 +39,29 @@ aplicar_estilos()
 # ---------------------------------------------------------------------------
 import sector_emis
 
-SUP_BOGOTA = sector_emis.calibrar_modelo(m.Supuestos(), None, m)[0]   # empresa tipo de Bogotá (mediana EMIS)
+SUP_BOGOTA, FUENTES_BOGOTA = sector_emis.supuestos_reales(sector_emis.base_empresa(), m)  # mediana EMIS 2025
 
 for clave, valor in {"supuestos": SUP_BOGOTA, "supuestos_base": SUP_BOGOTA, "historial_ia": [],
-                     "calibrado_emis": True,
+                     "calibrado_emis": True, "fuentes": FUENTES_BOGOTA,
+                     "empresa_modelo": sector_emis.REFERENCIA_BOGOTA["nombre"],
                      "hist_real": None, "pres_real": None, "inicio": (2027, 1), "archivo": None,
                      "usuarios_real": 450_000, "toneladas_real": 55_000.0, "esc": "Base"}.items():
     st.session_state.setdefault(clave, valor)
+
+# Estados financieros de EMIS guardados en los Secrets de Streamlit (privados, no van a GitHub).
+if "emis" not in st.session_state:
+    st.session_state.emis = None
+    try:
+        texto = st.secrets.get("emis_csv")
+    except Exception:
+        texto = None
+    if texto:
+        try:
+            import io as _io
+            d_sec = sector_emis.consolidar(pd.read_csv(_io.StringIO(texto)))
+            aplicar_empresa(d_sec, "real")
+        except Exception:
+            st.session_state.emis = None
 
 REALES = st.session_state.hist_real is not None
 ANIO_P, MES_P = st.session_state.inicio
@@ -104,10 +120,23 @@ def barra_filtros():
         proy = proyectar_app(s, esc)
         periodo = f"{proy['mes'].iloc[0]} a {proy['mes'].iloc[-1]}"
         c2.markdown(f"**Periodo proyectado**  \n{periodo}")
-        fuente = (f'<span class="chip real">Datos cargados: {st.session_state.archivo}</span>' if REALES
-                  else '<span class="chip">Empresa tipo de Bogotá · mediana de 5 operadores (EMIS)</span>' if st.session_state.get("calibrado_emis")
-                  else '<span class="chip">Datos sintéticos · empresa tipo</span>')
-        c3.markdown(f"**Fuente de datos**  \n{fuente}", unsafe_allow_html=True)
+        d_emis = st.session_state.get("emis")
+        if REALES:
+            c3.markdown(f"**Empresa**  \n<span class=\"chip real\">Datos cargados: {st.session_state.archivo}</span>",
+                        unsafe_allow_html=True)
+        elif d_emis is not None:
+            opciones = ["Mediana del sector"] + sorted(d_emis["empresa"].unique())
+            actual = st.session_state.empresa_modelo
+            idx = next((k for k, o in enumerate(opciones) if o == actual), 0)
+            elegida = c3.selectbox("Empresa", opciones, index=idx, key="empresa_barra",
+                                   help="Todo el aplicativo se recalcula con las cifras reales de la empresa elegida.")
+            nombre = None if elegida == "Mediana del sector" else elegida
+            if (nombre or sector_emis.base_empresa(d_emis)["nombre"]) != actual:
+                aplicar_empresa(d_emis, st.session_state.get("emis_origen", "real"), nombre)
+                st.rerun()
+        else:
+            c3.markdown(f"**Empresa**  \n<span class=\"chip\">{st.session_state.empresa_modelo} · EMIS</span>",
+                        unsafe_allow_html=True)
         st.caption(m.DESCRIPCION_ESCENARIOS[esc])
     return esc, s, proy, m.indicadores(proy, m.aplicar_escenario(s, esc)), periodo
 
@@ -148,10 +177,10 @@ def pagina_inicio():
                 unsafe_allow_html=True)
 
     st.subheader("Resultados de la empresa tipo")
-    st.caption("¿De qué empresa son estas cifras? De una **empresa tipo de aseo de Bogotá**: tiene el tamaño "
-               "(ingresos de $221.290 M al año) y el margen operacional (17,6%) de la mediana de los cinco "
-               "operadores reales de la ciudad, según sus estados financieros en EMIS. No es ninguna empresa en "
-               "particular. ¿Para qué sirven? Para ver, mes a mes, si la caja alcanza y cuándo habría que actuar.")
+    st.caption(f"¿De qué empresa son estas cifras? De **{st.session_state.empresa_modelo}**: la proyección 2027 parte "
+               "de sus estados financieros reales de 2025 (EMIS) y de datos públicos de la UAESP, el DANE y la "
+               "Alcaldía; en '1. Supuestos' está la fuente de cada valor. ¿Para qué sirven? Para ver, mes a mes, si la "
+               "caja alcanza y cuándo habría que actuar.")
     esc, s, proy, ind, periodo = barra_filtros()
     est = estado_indicadores(ind, s)
     c1, c2, c3, c4 = st.columns(4)
@@ -199,13 +228,12 @@ def pagina_supuestos():
                "Los drivers son las variables que mueven la caja. Todo el aplicativo se recalcula a partir de ellos.",
                ["Cada pestaña agrupa un tipo de driver.", "Pase el cursor sobre el signo ? de cada casilla para ver qué significa.",
                 "Cambie los valores y haga clic en 'Aplicar cambios'.", "Vaya al flujo de caja para ver el efecto."])
-    fuente_de_supuestos(m, SUP_BOGOTA, lambda: pagina_carga(embebido=True))
-    st.subheader("Supuestos del modelo")
+    fuente_de_supuestos(m, SUP_BOGOTA, FUENTES_BOGOTA, lambda: pagina_carga(embebido=True))
     s = st.session_state.supuestos
     ayudas = {
         "usuarios": ("Usuarios facturados", "Suscriptores a los que se les factura el servicio cada mes."),
-        "tarifa_promedio": ("Tarifa promedio por usuario (M$)", "Valor promedio facturado por usuario al mes, en millones de pesos (0,025 = $25.000)."),
-        "crecimiento_usuarios_anual": ("Crecimiento anual de usuarios", "Proporción en que crecen los usuarios cada año (0,015 = 1,5%)."),
+        "tarifa_promedio": ("Facturación mensual base (M$)", "Lo que factura la empresa en el primer mes de la proyección, en millones de pesos."),
+        "crecimiento_usuarios_anual": ("Crecimiento real anual", "Crecimiento de los ingresos descontando la inflación (0,045 = 4,5%)."),
         "tasa_recaudo": ("Tasa de recaudo", "Parte de lo facturado que finalmente se recauda (0,92 = 92%)."),
         "porcion_mes_siguiente": ("Porción del recaudo que llega al mes siguiente", "Del dinero recaudado, cuánto llega un mes después de facturar; el resto llega a los dos meses."),
         "toneladas_mes": ("Toneladas recolectadas al mes", "Volumen de residuos que se recolectan y se llevan a disposición final."),
@@ -227,7 +255,7 @@ def pagina_supuestos():
         "saldo_deuda": ("Saldo de la deuda financiera (M$)", "Saldo total de los créditos con bancos. Se usa para el indicador deuda / EBITDA."),
     }
     grupos = {
-        "Ingresos y recaudo": ["usuarios", "tarifa_promedio", "crecimiento_usuarios_anual", "tasa_recaudo", "porcion_mes_siguiente"],
+        "Ingresos y recaudo": ["tarifa_promedio", "crecimiento_usuarios_anual", "tasa_recaudo", "porcion_mes_siguiente"],
         "Costos de operación": ["toneladas_mes", "costo_disposicion_ton", "nomina_operativa", "combustible",
                                 "mantenimiento_flota", "gastos_administrativos", "otros_pagos", "poliza_semestral"],
         "Financiación, impuestos y tesorería": ["servicio_deuda", "inversion_flota", "impuesto_renta_anual",
@@ -236,6 +264,9 @@ def pagina_supuestos():
     }
     pasos = {"dias_proveedores": 5.0, "inventarios": 50.0, "saldo_deuda": 500.0}
     nuevos = {}
+    st.subheader("Ajustar los valores")
+    st.caption("Para analizar qué pasaría si algo cambia (por ejemplo, si el recaudo baja). Los valores con fuente "
+               "real ya están cargados; cambiarlos es un ejercicio de sensibilidad.")
     for tab, (grupo, campos) in zip(st.tabs(list(grupos)), grupos.items()):
         with tab:
             cols = st.columns(2)
@@ -306,7 +337,99 @@ def cargar_presupuesto(abierto=False):
             st.rerun()
 
 
+RUBROS_PRESUPUESTO = [("facturado", "Facturación"), ("recaudo", "Recaudo (entra a la caja)"),
+                      ("disposicion_final", "Disposición final"), ("nomina", "Nómina operativa"),
+                      ("combustible", "Combustible"), ("mantenimiento", "Mantenimiento de flota"),
+                      ("administrativos", "Gastos administrativos"), ("otros", "Otros pagos"), ("poliza", "Póliza de flota"),
+                      ("servicio_deuda", "Servicio de la deuda"), ("inversion_flota", "Reposición de flota"),
+                      ("impuestos", "Impuesto de renta"), ("egresos", "Total egresos"), ("flujo_neto", "Flujo neto")]
+
+
 def pagina_presupuesto():
+    if REALES:
+        return pagina_presupuesto_mensual()
+    empresa = st.session_state.empresa_modelo
+    encabezado("El modelo financiero", "2. Presupuesto",
+               f"Presupuesto 2027 de {empresa}, construido con sus estados financieros reales, y control del "
+               "presupuesto frente a lo que realmente ejecutaron los operadores.",
+               ["'Presupuesto 2027' muestra cuánto se espera facturar, cobrar y pagar el próximo año.",
+                "'Control con datos reales' compara un presupuesto hecho con el modelo contra lo que la empresa "
+                "realmente reportó a EMIS.", "Los rubros en rojo son desviaciones desfavorables."])
+    t1, t2 = st.tabs(["Presupuesto 2027", "Control con datos reales"])
+    with t1:
+        s = st.session_state.supuestos
+        proy = proyectar_app(s, "Base")
+        tot = {k: proy[k].sum() for k, _ in RUBROS_PRESUPUESTO}
+        c1, c2, c3, c4 = st.columns(4)
+        tarjeta(c1, "Facturación 2027", pesos(tot["facturado"]), "neutro", "12 meses", "recibo",
+                "Lo que la empresa espera facturar en el año.")
+        tarjeta(c2, "Recaudo 2027", pesos(tot["recaudo"]), "neutro",
+                f"{pct(tot['recaudo'] / tot['facturado'] * 100)} de lo facturado", "caja",
+                "Lo que realmente entra a la caja en el año, con el rezago del cobro.")
+        tarjeta(c3, "Egresos 2027", pesos(tot["egresos"]), "neutro", "costos, deuda, flota e impuestos", "camion")
+        tarjeta(c4, "Flujo neto 2027", pesos(tot["flujo_neto"]), "ok" if tot["flujo_neto"] >= 0 else "riesgo",
+                "recaudo − egresos", "tendencia")
+        fig = go.Figure()
+        fig.add_bar(x=proy["mes"], y=proy["recaudo"], name="Recaudo (entra)", marker_color=AZUL,
+                    text=[f"{v:,.0f}".replace(",", ".") for v in proy["recaudo"]], textposition="outside")
+        fig.add_bar(x=proy["mes"], y=proy["egresos"], name="Egresos (sale)", marker_color=NARANJA,
+                    text=[f"{v:,.0f}".replace(",", ".") for v in proy["egresos"]], textposition="outside")
+        fig.update_layout(barmode="group", yaxis_title="Millones de pesos", bargap=0.2)
+        st.plotly_chart(estilo_grafico(fig, 420, "Lo que entra frente a lo que sale, mes a mes (2027)"),
+                        width="stretch")
+        tabla = pd.DataFrame({"Rubro": [n for _, n in RUBROS_PRESUPUESTO],
+                              "Total 2027": [pesos(tot[k]) for k, _ in RUBROS_PRESUPUESTO],
+                              "Promedio mensual": [pesos(tot[k] / 12) for k, _ in RUBROS_PRESUPUESTO],
+                              "% de la facturación": [pct(tot[k] / tot["facturado"] * 100) for k, _ in RUBROS_PRESUPUESTO]})
+        st.table(tabla.set_index("Rubro"))
+        with st.expander("Ver el presupuesto mes a mes"):
+            mes_a_mes = proy.set_index("mes")[[k for k, _ in RUBROS_PRESUPUESTO]].T
+            mes_a_mes.index = [n for _, n in RUBROS_PRESUPUESTO]
+            st.table(mes_a_mes.map(lambda v: f"{v:,.0f}".replace(",", ".")))
+            st.caption("Millones de pesos.")
+        lectura(f"Para 2027, {empresa} facturaría {pesos(tot['facturado'])} pero recaudaría {pesos(tot['recaudo'])}, "
+                "porque parte de lo facturado se cobra uno o dos meses después y otra parte no se recauda. "
+                f"Después de pagar {pesos(tot['egresos'])}, el flujo neto del año sería de {pesos(tot['flujo_neto'])}. "
+                "Los supuestos y su fuente están en '1. Supuestos'.", "Qué dice el presupuesto")
+    with t2:
+        d = st.session_state.get("emis")
+        if d is None:
+            st.info("Para comparar con lo ejecutado, cargue los estados financieros de EMIS en '1. Supuestos'.",
+                    icon=":material/info:")
+            st.page_link(PAG_SUPUESTOS, label="Ir a 1. Supuestos", icon=":material/arrow_forward:")
+            return
+        empresas = sorted(d["empresa"].unique())
+        pre = empresa if empresa in empresas else empresas[0]
+        emp = st.selectbox("Operador", empresas, index=empresas.index(pre), key="pres_empresa")
+        tabla, anio = sector_emis.presupuesto_vs_real(d, emp)
+        if tabla is None:
+            st.info("Se necesitan al menos 3 años de datos de esta empresa.")
+            return
+        st.caption(f"El presupuesto {anio} se hizo con el método del modelo usando solo los años anteriores; "
+                   f"el ejecutado es lo que {emp} reportó a EMIS. Tolerancia: ±5%.")
+        def color(fila):
+            c = "color: #B42318; font-weight: 600" if fila["Estado"] == "Desfavorable" else ""
+            return [c] * len(fila)
+        st.dataframe(tabla.style.apply(color, axis=1).format(
+            {"Presupuestado": pesos, "Ejecutado": pesos, "Desviación %": "{:+.1f}%"}), hide_index=True, width="stretch")
+        fig = go.Figure()
+        fig.add_bar(x=tabla["Rubro"], y=tabla["Presupuestado"], name="Presupuestado", marker_color=AZUL,
+                    text=[pesos(v) for v in tabla["Presupuestado"]], textposition="outside")
+        fig.add_bar(x=tabla["Rubro"], y=tabla["Ejecutado"], name="Ejecutado (real)", marker_color=NARANJA,
+                    text=[pesos(v) for v in tabla["Ejecutado"]], textposition="outside")
+        fig.update_layout(barmode="group", yaxis_title="Millones de pesos", bargap=0.25)
+        st.plotly_chart(estilo_grafico(fig, 420, f"Presupuestado frente a ejecutado · {emp} {anio}"),
+                        width="stretch")
+        ing = tabla.iloc[0]
+        desf = tabla[tabla["Estado"] == "Desfavorable"]
+        lectura(f"{emp} ejecutó en {anio} ingresos por {pesos(ing['Ejecutado'])}, "
+                f"{pct(abs(ing['Desviación %']))} {'por debajo' if ing['Desviación %'] < 0 else 'por encima'} de lo "
+                f"presupuestado. {len(desf)} de {len(tabla)} rubros tuvieron desviación desfavorable. Este control "
+                "muestra a la gerencia dónde se alejó la realidad del plan, para corregir el presupuesto siguiente.",
+                "Qué dice el control presupuestal")
+
+
+def pagina_presupuesto_mensual():
     pres, ejec = presupuesto_y_ejecutado()
     encabezado("El modelo financiero", "2. Presupuesto",
                "Compara lo presupuestado con lo ejecutado para detectar a tiempo las desviaciones.",
@@ -374,19 +497,61 @@ def pagina_presupuesto():
     with t3:
         n = len(ejec)
         fig = go.Figure()
-        fig.add_bar(x=pres["mes"].head(n), y=pres["flujo_neto"].head(n), name="Presupuestado", marker_color=GRIS)
-        fig.add_bar(x=ejec["mes"], y=ejec["flujo_neto"], name="Ejecutado", marker_color=VERDE)
+        fig.add_scatter(x=pres["mes"].head(n), y=pres["flujo_neto"].head(n), name="Presupuestado", mode="lines+markers",
+                        line=dict(color=AZUL, width=3))
+        fig.add_scatter(x=ejec["mes"], y=ejec["flujo_neto"], name="Ejecutado", mode="lines+markers",
+                        line=dict(color=NARANJA, width=3))
+        fig.add_hline(y=0, line_color=GRIS, line_width=1)
         estilo_grafico(fig, 400, "Flujo neto mensual: presupuestado frente a ejecutado")
-        fig.update_layout(barmode="group", yaxis_title="Millones de pesos", bargap=0.25)
+        fig.update_layout(yaxis_title="Millones de pesos")
         st.plotly_chart(fig, width="stretch")
         dif = (ejec["flujo_neto"] - pres["flujo_neto"].head(n)).sum()
         lectura(f"En los {n} meses cerrados, el flujo neto ejecutado fue {pesos(abs(dif))} "
                 + ("mayor" if dif >= 0 else "menor") + " que el presupuestado en total.")
 
 
+COLORES_EMPRESAS = ["#2563EB", "#EA8C2F", "#16A34A", "#7C3AED", "#0F766E", "#DB2777"]
+
+
+def flujo_cinco_empresas(esc):
+    """Proyección de caja 2027 de cada operador, cada uno con sus propias cifras reales."""
+    d = st.session_state.get("emis")
+    if d is None:
+        st.info("Para comparar las 5 empresas, cargue los estados financieros de EMIS en '1. Supuestos'.",
+                icon=":material/info:")
+        st.page_link(PAG_SUPUESTOS, label="Ir a 1. Supuestos", icon=":material/arrow_forward:")
+        return
+    filas, fig = [], go.Figure()
+    for k, emp in enumerate(sorted(d["empresa"].unique())):
+        s_e, _ = sector_emis.supuestos_reales(sector_emis.base_empresa(d, emp), m)
+        pr = m.proyectar(s_e, esc, anio_inicio=ANIO_P, mes_inicio=MES_P)
+        ind_e = m.indicadores(pr, m.aplicar_escenario(s_e, esc))
+        fig.add_scatter(x=pr["mes"], y=pr["saldo_caja"], name=emp, mode="lines+markers",
+                        line=dict(color=COLORES_EMPRESAS[k % 6], width=3))
+        filas.append({"Empresa": emp, "Facturación 2027": pesos(pr["facturado"].sum()),
+                      "Recaudo 2027": pesos(pr["recaudo"].sum()), "Egresos 2027": pesos(pr["egresos"].sum()),
+                      "Flujo neto 2027": pesos(pr["flujo_neto"].sum()),
+                      "Caja más baja": pesos(ind_e["caja_minima_proyectada"]), "Mes crítico": ind_e["mes_critico"],
+                      "Meses bajo el mínimo": ind_e["meses_bajo_minimo"], "_flujo": pr["flujo_neto"].sum()})
+    estilo_grafico(fig, 430, f"Saldo de caja proyectado 2027 por operador · escenario {esc.lower()}")
+    fig.update_layout(yaxis_title="Millones de pesos")
+    st.plotly_chart(fig, width="stretch")
+    tabla = pd.DataFrame(filas)
+    st.table(tabla.drop(columns="_flujo").set_index("Empresa"))
+    mejor = tabla.loc[tabla["_flujo"].idxmax(), "Empresa"]
+    peor = tabla.loc[tabla["_flujo"].idxmin(), "Empresa"]
+    riesgo = tabla[tabla["Meses bajo el mínimo"] > 0]["Empresa"].tolist()
+    lectura(f"Cada línea es la caja proyectada de un operador con sus propios estados financieros 2025. "
+            f"<b>{mejor}</b> es el que más caja genera en el año y <b>{peor}</b> el que menos. "
+            + (f"En el escenario {esc.lower()}, {', '.join(riesgo)} quedaría por debajo de su caja mínima algún mes."
+               if riesgo else f"En el escenario {esc.lower()}, ningún operador baja de su caja mínima."),
+            "Comparación de los operadores")
+
+
 def pagina_flujo():
     encabezado("El modelo financiero", "3. Flujo de caja",
-               "Proyecta mes a mes cuánto dinero tendrá la empresa, para anticipar faltantes de liquidez.",
+               f"Proyecta mes a mes cuánto dinero tendrá {st.session_state.empresa_modelo} en 2027, para anticipar "
+               "faltantes de liquidez. En 'Las 5 empresas' se comparan todos los operadores.",
                ["Elija el escenario en la barra superior.", "La línea roja punteada es la caja mínima operativa.",
                 "Si la línea del escenario cruza la línea roja, la empresa necesitará financiación ese mes.",
                 "La pestaña 'Entradas y salidas' muestra en barras de dónde viene el resultado de cada mes."])
@@ -401,10 +566,12 @@ def pagina_flujo():
     tarjeta(c4, "Saldo final", pesos(ind["saldo_final"]), est["final"], proy["mes"].iloc[-1], "tendencia",
             "Saldo de caja al cierre del periodo proyectado.")
 
-    t1, t2, t3, t4 = st.tabs(["Proyección", "Entradas y salidas", "Detalle mensual", "Sensibilidad"])
+    t1, t5, t2, t3, t4 = st.tabs(["Proyección", "Las 5 empresas", "Entradas y salidas", "Detalle mensual", "Sensibilidad"])
+    with t5:
+        flujo_cinco_empresas(esc)
     with t1:
         fig = go.Figure()
-        for e, color in [("Pesimista", NARANJA), ("Optimista", PETROLEO), ("Base", VERDE)]:
+        for e, color in [("Pesimista", NARANJA), ("Optimista", VERDE), ("Base", AZUL)]:
             d = proyectar_app(s, e)
             activo = e == esc
             fig.add_scatter(x=d["mes"], y=d["saldo_caja"], name=e, mode="lines+markers",
@@ -428,7 +595,7 @@ def pagina_flujo():
                     f"crédito de tesorería por al menos {pesos(s.caja_minima - ind['caja_minima_proyectada'])}, o acelerar el recaudo.")
     with t2:
         fig = go.Figure()
-        fig.add_bar(x=proy["mes"], y=proy["recaudo"], name="Entradas: recaudo", marker_color=VERDE)
+        fig.add_bar(x=proy["mes"], y=proy["recaudo"], name="Entradas: recaudo", marker_color=AZUL)
         fig.add_bar(x=proy["mes"], y=-proy["egresos"], name="Salidas: egresos", marker_color=NARANJA)
         fig.add_scatter(x=proy["mes"], y=proy["flujo_neto"], name="Flujo neto", mode="lines+markers",
                         line=dict(color=NEGRO, width=2))
@@ -436,7 +603,7 @@ def pagina_flujo():
         fig.update_layout(barmode="relative", yaxis_title="Millones de pesos")
         st.plotly_chart(fig, width="stretch")
         peor = proy.loc[proy["flujo_neto"].idxmin()]
-        lectura(f"Las barras verdes son el dinero que entra y las naranja el que sale; la línea negra es la diferencia. "
+        lectura(f"Las barras azules son el dinero que entra y las naranja el que sale; la línea negra es la diferencia. "
                 f"El peor mes es {peor['mes']}, con un flujo neto de {pesos(peor['flujo_neto'])}, porque coinciden pagos "
                 f"grandes ({pesos(peor['poliza'] + peor['impuestos'])} en pólizas e impuestos) con un recaudo que no cambia.")
     with t3:
@@ -549,13 +716,19 @@ def verificar_indicadores(proy, ind, s, esc):
 
 def pagina_indicadores():
     encabezado("El modelo financiero", "4. Indicadores",
-               "Tablero con los indicadores de liquidez, rentabilidad y recaudo, con semáforo y fórmula de cada uno.",
+               f"Indicadores financieros de {st.session_state.empresa_modelo} para 2027, agrupados en cinco preguntas "
+               "que se hace un gerente financiero. Cada uno tiene semáforo y fórmula.",
                ["El color del borde inferior es el semáforo del indicador.", "Pase el cursor sobre el signo ? para ver la fórmula.",
                 "Los umbrales son de referencia y se validarán con expertos."])
     esc, s, proy, ind, periodo = barra_filtros()
     est = estado_indicadores(ind, s)
-    t1, t2, t5, t3, t4 = st.tabs(["Liquidez", "Rentabilidad y recaudo", "Capital de trabajo y deuda", "Egresos",
-                                  "Verificación de cálculos"])
+    st.markdown("**1. Liquidez:** ¿alcanza la caja?  \n"
+                "**2. Rentabilidad y cartera:** ¿cuánto gana y qué tan rápido cobra?  \n"
+                "**3. Capital de trabajo y endeudamiento:** ¿cuánta plata queda atrapada en la operación y cuánto debe?  \n"
+                "**4. Estructura de costos:** ¿en qué se va la plata?  \n"
+                "**5. Fórmulas y verificación:** cómo se calculó cada indicador, paso a paso.")
+    t1, t2, t5, t3, t4 = st.tabs(["1. Liquidez", "2. Rentabilidad y cartera", "3. Capital de trabajo y endeudamiento",
+                                  "4. Estructura de costos", "5. Fórmulas y verificación"])
     with t5:
         capital_de_trabajo(ind, est, s)
     with t4:
@@ -968,10 +1141,8 @@ with st.sidebar:
     if REALES:
         st.caption(f"Datos cargados: {st.session_state.archivo}. Manéjelos con confidencialidad.")
     else:
-        st.caption("Empresa tipo calibrada con la mediana de los operadores de Bogotá (EMIS). "
-                   "Cifras en millones de pesos; ninguna corresponde a una empresa real."
-                   if st.session_state.get("calibrado_emis") else
-                   "Datos sintéticos. Cifras en millones de pesos; ninguna corresponde a una empresa real.")
+        st.caption(f"Empresa proyectada: {st.session_state.empresa_modelo}. Datos reales de EMIS y fuentes "
+                   "públicas. Cifras en millones de pesos.")
     st.caption("Sandra Nope - Sara Cuta Díaz  \nMaestría en Finanzas · Universidad Libre")
 
 navegacion.run()

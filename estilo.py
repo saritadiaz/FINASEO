@@ -11,6 +11,7 @@ import streamlit as st
 # Paleta verde claro con letra negra
 VERDE_OSCURO, VERDE, PETROLEO, NARANJA, GRIS = "#111111", "#16A34A", "#0F766E", "#EA8C2F", "#9CA3AF"
 VERDE_CLARO = "#86EFAC"
+AZUL = "#2563EB"
 NEGRO = "#111111"
 ROJO = "#B42318"
 FUENTE = "Inter, sans-serif"

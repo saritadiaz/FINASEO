@@ -41,11 +41,12 @@ def _leer_emis(archivos):
     return d
 
 
-def _aplicar(d, origen):
-    """Guarda los datos y calibra el modelo con ellos (una sola vez por carga)."""
-    s_nuevo, _, r = lic.calibrar_modelo(m.Supuestos(), d, m)
+def aplicar_empresa(d, origen, empresa=None):
+    """Guarda los datos y construye los supuestos del modelo con ellos."""
+    b = lic.base_empresa(d, empresa)
+    s_nuevo, fuentes = lic.supuestos_reales(b, m)
     st.session_state.update({"emis": d, "emis_origen": origen, "supuestos": s_nuevo, "supuestos_base": s_nuevo,
-                             "calibrado_emis": True, "emis_resumen": r})
+                             "calibrado_emis": True, "fuentes": fuentes, "empresa_modelo": b["nombre"]})
 
 
 def _tabla_datos(d):
@@ -60,29 +61,42 @@ def _tabla_datos(d):
                "Fuente: EMIS, con datos de la Cámara de Comercio de Bogotá.")
 
 
-def fuente_de_supuestos(modelo_mod, sup_bogota, cargar_empresa):
-    """Parte superior de '1. Supuestos': de dónde sale la información que alimenta el modelo."""
-    st.subheader("¿De dónde sale la información?")
+def fuente_de_supuestos(modelo_mod, sup_bogota, fuentes_bogota, cargar_empresa):
+    """Parte superior de '1. Supuestos': qué empresa se proyecta y de dónde sale cada valor."""
     d = st.session_state.get("emis")
-    r = st.session_state.get("emis_resumen") or lic.OBJETIVO_BOGOTA
+    if d is not None:
+        opciones = ["Mediana del sector"] + sorted(d["empresa"].unique())
+        actual = st.session_state.get("empresa_modelo", "")
+        idx = next((k for k, o in enumerate(opciones) if o == actual), 0)
+        elegida = st.selectbox("Empresa a proyectar", opciones, index=idx, key="sel_empresa_modelo",
+                               help="Elija un operador para proyectar su presupuesto y su caja con sus propias cifras.")
+        nombre = None if elegida == "Mediana del sector" else elegida
+        if (nombre or lic.base_empresa(d)["nombre"]) != actual:
+            aplicar_empresa(d, st.session_state.get("emis_origen", "real"), nombre)
+            st.rerun()
     if st.session_state.get("hist_real") is not None:
         st.info(f"El modelo está usando los datos mensuales de **{st.session_state.archivo}**.", icon=":material/info:")
-    elif st.session_state.get("calibrado_emis"):
-        st.success(f"Los supuestos están calibrados con los **{r['empresas']} operadores de aseo de Bogotá** (EMIS): "
-                   f"ingresos de {pesos(r['ingreso_anual'])} al año (mediana {r['anio']}) y margen operacional de "
-                   f"{pct(r['margen'] * 100)}. A partir de ellos se generan el presupuesto, el flujo de caja y los "
-                   "indicadores.", icon=":material/check_circle:")
-    t1, t2 = st.tabs(["Estados financieros de los operadores (EMIS)", "Datos mensuales de una empresa (opcional)"])
-    with t1:
-        st.caption("Suba el Excel con los estados financieros de los operadores. Los supuestos se recalculan solos "
-                   "con la mediana del sector. Si no sube nada, el modelo usa la mediana ya guardada (2021–2025).")
+    fuentes = st.session_state.get("fuentes")
+    if fuentes is None:
+        fuentes = fuentes_bogota
+    reales = fuentes["Origen"].str.startswith("✅").sum()
+    st.success(f"**Proyección 2027 de {st.session_state.get('empresa_modelo')}**, construida con datos reales: "
+               f"{reales} de {len(fuentes)} supuestos vienen de EMIS o de fuentes públicas. Los demás están "
+               "señalados para validarlos con expertos.", icon=":material/verified:")
+    st.subheader("De dónde sale cada supuesto")
+    st.table(fuentes.set_index("Supuesto"))
+    st.caption("EMIS: estados financieros reportados a la Cámara de Comercio de Bogotá. Fuentes públicas: DANE, UAESP, "
+               "Superservicios, Alcaldía de Bogotá y Ley 2277 de 2022.")
+    with st.expander("Cargar o cambiar los estados financieros de EMIS"):
+        st.caption("Suba el Excel con los estados financieros de los operadores. Los supuestos se recalculan solos. "
+                   "Si no sube nada, el modelo usa la mediana de 2025 ya guardada.")
         archivos = st.file_uploader("Archivos de EMIS (Excel o CSV)", type=["xlsx", "xls", "csv"],
                                     accept_multiple_files=True, key="emis_archivos")
         firma = tuple((a.name, a.size) for a in archivos) if archivos else None
         if firma and firma != st.session_state.get("emis_firma"):
             nuevos = _leer_emis(archivos)
             if nuevos is not None:
-                _aplicar(nuevos, "real")
+                aplicar_empresa(nuevos, "real")
                 st.session_state.emis_firma = firma
                 st.toast("Supuestos recalculados con los datos de EMIS.")
                 st.rerun()
@@ -91,17 +105,15 @@ def fuente_de_supuestos(modelo_mod, sup_bogota, cargar_empresa):
                            icon=":material/download:", width="stretch")
         if c3.button("Volver a la mediana guardada", icon=":material/restart_alt:", width="stretch"):
             st.session_state.update({"supuestos": sup_bogota, "supuestos_base": sup_bogota, "calibrado_emis": True,
-                                     "emis_resumen": None})
+                                     "fuentes": fuentes_bogota, "empresa_modelo": lic.REFERENCIA_BOGOTA["nombre"],
+                                     "emis": None, "emis_firma": None})
             st.rerun()
         if d is not None:
-            origen = st.session_state.get("emis_origen")
             st.markdown(f"**Datos cargados:** {d['empresa'].nunique()} empresas, años {int(d['anio'].min())} a "
-                        f"{int(d['anio'].max())}" + (" · *operadores ficticios de prueba*" if origen == "ejemplo" else ""))
-            with st.expander("Ver los datos leídos"):
-                _tabla_datos(d)
-    with t2:
-        st.caption("Solo si una empresa autoriza usar sus datos mensuales (ventas, recaudo, pagos y saldo de bancos). "
-                   "Con ellos el modelo proyecta la caja de esa empresa en particular.")
+                        f"{int(d['anio'].max())}")
+            _tabla_datos(d)
+    with st.expander("Datos mensuales de una empresa (opcional)"):
+        st.caption("Solo si una empresa autoriza usar sus datos mensuales (ventas, recaudo, pagos y saldo de bancos).")
         cargar_empresa()
 
 

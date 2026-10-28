@@ -203,6 +203,19 @@ def leer_archivo(nombre, contenido):
     return datos, mensajes
 
 
+NOMBRES_CORTOS = {"promoambiental": "Promoambiental", "ciudad limpia": "Ciudad Limpia",
+                  "limpieza metropolitana": "LIME", "lime": "LIME", "bogota limpia": "Bogotá Limpia",
+                  "area limpia": "Área Limpia"}
+
+
+def nombre_corto(nombre):
+    n = _norm(str(nombre).replace("_", " "))
+    for clave, corto in NOMBRES_CORTOS.items():
+        if n.startswith(clave) or f" {clave}" in f" {n}":
+            return corto
+    return str(nombre).replace("_", " ").strip()
+
+
 def consolidar(datos, anios=5):
     """Une archivos, se queda con los últimos `anios` años de cada empresa y calcula indicadores."""
     datos = datos.groupby(["empresa", "anio"], as_index=False).first()
@@ -214,6 +227,11 @@ def consolidar(datos, anios=5):
     # En EMIS los costos a veces vienen negativos: se usan en valor absoluto
     for c in ["costo_ventas", "gastos_admin", "depreciacion", "gastos_financieros"]:
         datos[c] = datos[c].abs()
+    # EMIS no separa los gastos de administración: se obtienen como ingresos − costo − utilidad operacional
+    falta = datos["gastos_admin"].isna() & datos["utilidad_operacional"].notna()
+    datos.loc[falta, "gastos_admin"] = (datos["ingresos"] - datos["costo_ventas"]
+                                        - datos["utilidad_operacional"])[falta]
+    datos["empresa"] = datos["empresa"].map(nombre_corto)
     return indicadores(datos.reset_index(drop=True))
 
 
@@ -442,3 +460,151 @@ def plantilla_excel():
                 "La hoja 'Ejemplo ficticio' tiene operadores inventados solo para probar.",
             ]}).to_excel(w, sheet_name="Instrucciones", index=False)
     return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# 7. SUPUESTOS DEL MODELO A PARTIR DE DATOS REALES (EMIS + FUENTES PÚBLICAS)
+# ---------------------------------------------------------------------------
+# Mediana 2025 de los 5 operadores de Bogotá (EMIS), como proporción de los ingresos.
+# Solo se guardan agregados; los estados financieros de cada empresa no se publican.
+REFERENCIA_BOGOTA = {
+    "nombre": "Mediana de los 5 operadores de Bogotá", "anio": 2025, "ingresos": 221_289.9,
+    "costo_r": 0.6697, "admin_r": 0.1131, "uai_r": 0.1121, "plp_r": 0.0413,
+    "crec_real": 0.0446, "toneladas": None,
+}
+IPC_2025 = 0.0510                     # DANE: inflación anual a diciembre de 2025
+TON_DIA_BOGOTA = 5_682                # UAESP: toneladas recolectadas al día en Bogotá, 2025
+TON_MES_LIME = 54_892                 # Superservicios: disposición mensual promedio del ASE 2 (LIME)
+TASA_RENTA = 0.35                     # Ley 2277 de 2022: tarifa general del impuesto de renta
+# Distribución de referencia del costo de ventas entre rubros (el TOTAL sí es real, de EMIS).
+REPARTO_COSTOS = {"disposicion": 0.287, "nomina_operativa": 0.417, "combustible": 0.157,
+                  "mantenimiento_flota": 0.081, "otros_pagos": 0.035, "poliza": 0.023}
+
+
+def base_empresa(d=None, empresa=None):
+    """Datos base del último año de una empresa (o de la mediana del sector) para el modelo."""
+    if d is None:
+        return dict(REFERENCIA_BOGOTA)
+    if empresa is None:
+        u = d.sort_values("anio").groupby("empresa").tail(1).copy()
+        u["costo_r"] = u["costo_ventas"] / u["ingresos"]
+        u["admin_r"] = u["gastos_admin"] / u["ingresos"]
+        u["uai_r"] = u["utilidad_neta"] / u["ingresos"]
+        u["plp_r"] = (u["pasivos_totales"] - u["pasivo_corriente"]) / u["ingresos"]
+        crec = [crecimiento_real(g) for _, g in d.groupby("empresa")]
+        return {"nombre": f"Mediana de los {len(u)} operadores", "anio": int(u["anio"].max()),
+                "ingresos": float(u["ingresos"].median()), "costo_r": float(u["costo_r"].median()),
+                "admin_r": float(u["admin_r"].median()), "uai_r": float(u["uai_r"].median()),
+                "plp_r": float(u["plp_r"].median()), "crec_real": float(np.nanmedian(crec)), "toneladas": None}
+    g = d[d["empresa"] == empresa].sort_values("anio")
+    u = g.iloc[-1]
+    ing = float(u["ingresos"])
+    return {"nombre": empresa, "anio": int(u["anio"]), "ingresos": ing,
+            "costo_r": float(u["costo_ventas"]) / ing, "admin_r": float(np.nan_to_num(u["gastos_admin"])) / ing,
+            "uai_r": float(u["utilidad_neta"]) / ing,
+            "plp_r": float(np.nan_to_num(u["pasivos_totales"] - u["pasivo_corriente"])) / ing,
+            "crec_real": crecimiento_real(g), "toneladas": TON_MES_LIME if empresa == "LIME" else None}
+
+
+def crecimiento_real(g):
+    """Crecimiento anual promedio de los ingresos descontando la inflación (IPC del DANE)."""
+    g = g.sort_values("anio")
+    tasas = [(b["ingresos"] / a["ingresos"]) / (1 + IPC.get(int(b["anio"]), 0.05)) - 1
+             for (_, a), (_, b) in zip(g.iloc[:-1].iterrows(), g.iloc[1:].iterrows())]
+    return float(np.mean(tasas)) if tasas else 0.0
+
+
+def _mil(x):
+    return f"{x:,.0f}".replace(",", ".")
+
+
+def _pc(x, dec=1):
+    return f"{x * 100:.{dec}f}%".replace(".", ",")
+
+
+def supuestos_reales(b, modelo):
+    """Construye los supuestos del modelo a partir de datos reales. Devuelve (Supuestos, tabla de fuentes)."""
+    crec = max(min(b["crec_real"], 0.15), -0.05)
+    ingreso_anual_2026 = b["ingresos"] * (1 + crec) * (1 + IPC_2025)
+    fact_mes = ingreso_anual_2026 / 12
+    costo_mes = fact_mes * b["costo_r"]
+    admin_mes = fact_mes * b["admin_r"]
+    toneladas = b["toneladas"] or TON_DIA_BOGOTA * 365 / 12 / 5
+    disp = costo_mes * REPARTO_COSTOS["disposicion"]
+    saldo_deuda = b["ingresos"] * b["plp_r"]
+    uai = b["ingresos"] * b["uai_r"]
+    s = modelo.Supuestos(
+        usuarios=1, tarifa_promedio=fact_mes, crecimiento_usuarios_anual=crec,
+        tasa_recaudo=0.92, porcion_mes_siguiente=0.50,
+        toneladas_mes=toneladas, costo_disposicion_ton=disp / toneladas,
+        nomina_operativa=costo_mes * REPARTO_COSTOS["nomina_operativa"],
+        combustible=costo_mes * REPARTO_COSTOS["combustible"],
+        mantenimiento_flota=costo_mes * REPARTO_COSTOS["mantenimiento_flota"],
+        gastos_administrativos=admin_mes,
+        otros_pagos=costo_mes * REPARTO_COSTOS["otros_pagos"],
+        poliza_semestral=costo_mes * REPARTO_COSTOS["poliza"] * 6,
+        servicio_deuda=saldo_deuda / 60, inversion_flota=fact_mes * 0.02,
+        impuesto_renta_anual=max(uai, 0) * TASA_RENTA,
+        inflacion_anual=IPC_2025, caja_inicial=fact_mes * 0.5,
+        caja_minima=(costo_mes + admin_mes) * 0.5,
+        inventarios=fact_mes * 0.05, dias_proveedores=30, saldo_deuda=saldo_deuda,
+    )
+    E, P, V, G = "✅ EMIS", "✅ Fuente pública", "⚠️ Por validar con expertos", "Decisión de la gerencia"
+    a = b["anio"]
+    filas = [
+        ["Facturación mensual base", f"{_mil(fact_mes)} M$", E,
+         f"Ingresos {a} ({_mil(b['ingresos'])} M$) × (1 + crecimiento real) × (1 + IPC 2025) ÷ 12"],
+        ["Crecimiento real anual", _pc(crec), E, f"Promedio {a - 4}–{a}, descontando la inflación del DANE"],
+        ["Inflación (ajuste de tarifas y costos)", _pc(IPC_2025, 2), P, "DANE: IPC 2025"],
+        ["Costo de ventas", f"{_pc(b['costo_r'])} de los ingresos", E, f"Estado de resultados {a}"],
+        ["Gastos de administración", f"{_pc(b['admin_r'])} de los ingresos", E, f"Estado de resultados {a}"],
+        ["Toneladas al mes", f"{_mil(toneladas)} t", P,
+         "Superservicios: promedio mensual del ASE 2" if b["toneladas"] else
+         f"UAESP: {_mil(TON_DIA_BOGOTA)} t/día en Bogotá (2025) ÷ 5 áreas de servicio"],
+        ["Rezago del recaudo", "50% al mes siguiente y 50% a los dos meses", P,
+         "Alcaldía de Bogotá: la factura conjunta con el Acueducto se emite cada 58 a 62 días"],
+        ["Impuesto de renta", f"{_mil(max(uai, 0) * TASA_RENTA)} M$ al año, en 3 cuotas", P,
+         f"Tarifa del 35% (Ley 2277 de 2022) sobre la utilidad antes de impuestos {a} (EMIS)"],
+        ["Saldo de la deuda de largo plazo", f"{_mil(saldo_deuda)} M$", E, f"Pasivo total − pasivo corriente {a}"],
+        ["Tasa de recaudo", "92%", V, "No es público; se valida con expertos del sector"],
+        ["Reparto del costo entre rubros", "nómina 42%, disposición 29%, combustible 16%…", V,
+         "El total es real (EMIS); el reparto entre rubros se valida con expertos"],
+        ["Cuota mensual de la deuda", f"{_mil(saldo_deuda / 60)} M$", V, "Saldo de la deuda ÷ 60 meses (plazo de 5 años)"],
+        ["Reposición de flota", "2% de la facturación", V, "No es público; se valida con expertos"],
+        ["Caja inicial", "medio mes de facturación", V, "EMIS no separa el efectivo"],
+        ["Caja mínima operativa", "15 días de costos y gastos", G, "Política de liquidez definida por la gerencia"],
+    ]
+    tabla = pd.DataFrame(filas, columns=["Supuesto", "Valor", "Origen", "Cómo se obtiene"])
+    return s, tabla
+
+
+# ---------------------------------------------------------------------------
+# 8. CONTROL PRESUPUESTAL CON DATOS REALES
+# ---------------------------------------------------------------------------
+def presupuesto_vs_real(d, empresa, tolerancia=0.05):
+    """Presupuesto del último año hecho con el método del modelo (solo con los años anteriores)
+    frente a lo que la empresa realmente reportó. Devuelve (tabla, año)."""
+    g = d[d["empresa"] == empresa].sort_values("anio")
+    if len(g) < 3:
+        return None, None
+    prev, real = g.iloc[:-1], g.iloc[-1]
+    ult = prev.iloc[-1]
+    crec = prev["ingresos"].pct_change().dropna().mean()
+    ing_p = ult["ingresos"] * (1 + crec)
+    costo_p = ing_p * (prev["costo_ventas"] / prev["ingresos"]).mean()
+    admin_p = ing_p * (prev["gastos_admin"] / prev["ingresos"]).mean()
+    uo_p = ing_p * (prev["utilidad_operacional"] / prev["ingresos"]).mean()
+    un_p = ing_p * (prev["utilidad_neta"] / prev["ingresos"]).mean()
+    filas = []
+    for rubro, p, r, es_ingreso in [("Ingresos operacionales", ing_p, real["ingresos"], True),
+                                    ("Costo de ventas", costo_p, real["costo_ventas"], False),
+                                    ("Gastos de administración", admin_p, real["gastos_admin"], False),
+                                    ("Utilidad operacional", uo_p, real["utilidad_operacional"], True),
+                                    ("Utilidad neta", un_p, real["utilidad_neta"], True)]:
+        if pd.isna(r) or pd.isna(p) or p == 0:
+            continue
+        desv = (r - p) / abs(p)
+        malo = desv < -tolerancia if es_ingreso else desv > tolerancia
+        filas.append({"Rubro": rubro, "Presupuestado": p, "Ejecutado": r, "Desviación %": desv * 100,
+                      "Estado": "Desfavorable" if malo else ("Favorable" if abs(desv) > tolerancia else "Dentro del rango")})
+    return pd.DataFrame(filas), int(real["anio"])

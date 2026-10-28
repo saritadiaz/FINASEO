@@ -13,7 +13,7 @@ import os
 MODELO_CLAUDE = "claude-sonnet-5-5"   # registrar la versión exacta usada en la tesis
 
 INSTRUCCIONES_SISTEMA = """Eres un analista financiero senior de una empresa prestadora del servicio \
-de aseo en Colombia. Recibes un resumen de indicadores calculados por un modelo financiero \
+de aseo en Bogotá. Recibes un resumen de indicadores calculados por un modelo financiero \
 (cifras en millones de pesos colombianos). Responde en español, de forma clara y breve, para la \
 gerencia.
 

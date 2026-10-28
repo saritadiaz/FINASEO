@@ -1,6 +1,6 @@
 # FinAseo: aplicativo financiero con inteligencia artificial
 
-Prototipo del trabajo escrito *"Modelo financiero con inteligencia artificial para el presupuesto y el flujo de caja de una empresa de aseo en Colombia"*.
+Prototipo del trabajo escrito *"Modelo financiero con inteligencia artificial para el presupuesto y el flujo de caja de una empresa de aseo en Bogotá"*.
 
 Maestría en Finanzas, Universidad Libre de Colombia.
 Autoras: Sandra Nope - Sara Cuta Díaz.
@@ -101,3 +101,12 @@ Para activarlo necesitan una clave de la API de Anthropic, que se obtiene en con
 ## Nota sobre el desarrollo
 
 Este prototipo se construyó con asistencia de inteligencia artificial. Para la tesis, documenten ese proceso en la metodología y asegúrense de entender qué hace cada parte del código, porque los jurados pueden preguntar.
+
+
+## 9. Comparación con el sector (EMIS)
+
+Pantalla para cargar los estados financieros anuales de los operadores de aseo de Bogotá descargados de EMIS
+(fuente: Cámara de Comercio de Bogotá). Calcula el diagnóstico de cada operador, valida el pronóstico del
+modelo frente al método tradicional (año anterior + IPC) y calibra los supuestos de la empresa tipo con la
+mediana del sector. **Los datos de EMIS no se suben a este repositorio** (su redistribución está prohibida):
+se cargan solo en la sesión del aplicativo.

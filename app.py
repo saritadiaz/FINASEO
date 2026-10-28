@@ -1,6 +1,6 @@
 """
 FinAseo: aplicativo financiero con inteligencia artificial generativa para una
-empresa prestadora del servicio de aseo en Colombia.
+empresa prestadora del servicio de aseo en Bogotá.
 
 Trabajo escrito - Maestría en Finanzas, Universidad Libre de Colombia.
 Autoras: Sandra Nope - Sara Cuta Díaz.
@@ -100,6 +100,7 @@ def barra_filtros():
         periodo = f"{proy['mes'].iloc[0]} a {proy['mes'].iloc[-1]}"
         c2.markdown(f"**Periodo proyectado**  \n{periodo}")
         fuente = (f'<span class="chip real">Datos cargados: {st.session_state.archivo}</span>' if REALES
+                  else '<span class="chip">Empresa tipo calibrada con EMIS</span>' if st.session_state.get("calibrado_emis")
                   else '<span class="chip">Datos sintéticos · empresa tipo</span>')
         c3.markdown(f"**Fuente de datos**  \n{fuente}", unsafe_allow_html=True)
         st.caption(m.DESCRIPCION_ESCENARIOS[esc])
@@ -119,7 +120,7 @@ def pagina_inicio():
         '<div class="portada"><div class="cubierta">'
         '<p class="inst">Universidad Libre de Colombia</p>'
         '<p class="fac">Facultad de Ciencias Económicas, Administrativas y Contables · Maestría en Finanzas</p>'
-        '<h1>Modelo financiero con inteligencia artificial para el presupuesto y el flujo de caja de una empresa de aseo en Colombia</h1></div>'
+        '<h1>Modelo financiero con inteligencia artificial para el presupuesto y el flujo de caja de una empresa de aseo en Bogotá</h1></div>'
         '<div class="autoras"><div><span>Autora</span>Sandra Nope</div><div><span>Autora</span>Sara Cuta Díaz</div>'
         '<div><span>Trabajo escrito</span>Investigación I · 2026</div></div></div>', unsafe_allow_html=True)
 
@@ -983,8 +984,8 @@ PAG_INDICADORES = st.Page(pagina_indicadores, title="4. Indicadores", icon=":mat
 PAG_BACKTESTING = st.Page(pagina_backtesting, title="5. Backtesting (H1)", icon=":material/science:", url_path="backtesting")
 PAG_ASISTENTE = st.Page(pagina_asistente, title="6. Asistente IA", icon=":material/smart_toy:", url_path="asistente")
 PAG_CARGA = st.Page(pagina_carga, title="7. Carga de datos (Excel)", icon=":material/upload_file:", url_path="carga-de-datos")
-from pagina_licitacion import pagina_licitacion
-PAG_LICITACION = st.Page(pagina_licitacion, title="9. Licitación (EMIS)", icon=":material/gavel:", url_path="licitacion")
+from pagina_sector import pagina_sector
+PAG_SECTOR = st.Page(pagina_sector, title="9. Comparación con el sector (EMIS)", icon=":material/leaderboard:", url_path="sector")
 PAG_INFORME = st.Page(pagina_informe, title="8. Informe de los datos", icon=":material/bar_chart:", url_path="informe")
 
 navegacion = st.navigation({
@@ -992,8 +993,7 @@ navegacion = st.navigation({
     "Planeación financiera": [PAG_SUPUESTOS, PAG_PRESUPUESTO, PAG_FLUJO],
     "Análisis": [PAG_INDICADORES, PAG_ASISTENTE],
     "Investigación": [PAG_BACKTESTING],
-    "Datos": [PAG_CARGA, PAG_INFORME],
-    "Licitación": [PAG_LICITACION],
+    "Datos": [PAG_CARGA, PAG_INFORME, PAG_SECTOR],
 })
 
 st.logo("logo.svg", size="large")
@@ -1002,7 +1002,10 @@ with st.sidebar:
     if REALES:
         st.caption(f"Datos cargados: {st.session_state.archivo}. Manéjelos con confidencialidad.")
     else:
-        st.caption("Datos sintéticos. Cifras en millones de pesos; ninguna corresponde a una empresa real.")
+        st.caption("Empresa tipo calibrada con la mediana de los operadores de Bogotá (EMIS). "
+                   "Cifras en millones de pesos; ninguna corresponde a una empresa real."
+                   if st.session_state.get("calibrado_emis") else
+                   "Datos sintéticos. Cifras en millones de pesos; ninguna corresponde a una empresa real.")
     st.caption("Sandra Nope - Sara Cuta Díaz  \nMaestría en Finanzas · Universidad Libre")
 
 navegacion.run()
